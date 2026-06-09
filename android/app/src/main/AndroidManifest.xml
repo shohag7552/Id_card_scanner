@@ -1,4 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Required for Gemini (Firebase AI) network calls in release builds. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="card_scanner"
         android:name="${applicationName}"

@@ -2,7 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/card_info.dart';
-import '../services/ocr_service.dart';
+import '../services/gemini_nid_service.dart';
 import '../services/face_detector_service.dart';
 import '../theme/app_theme.dart';
 import 'card_editor_page.dart';
@@ -17,14 +17,14 @@ class ScanPage extends StatefulWidget {
 
 class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin {
   final ImagePicker _picker = ImagePicker();
-  
+
   String? _frontImagePath;
   String? _backImagePath;
   bool _isScanning = false;
-  
+  bool _hasScanned = false;
+
   CardInfo _scannedInfo = const CardInfo();
-  List<RecognizedLineInfo> _detectedLines = [];
-  
+
   late AnimationController _laserController;
   late Animation<double> _laserAnimation;
 
@@ -60,67 +60,91 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
           } else {
             _backImagePath = image.path;
           }
-          _isScanning = true;
+          // Re-picking after a scan lets the user run it again with the new image.
+          _hasScanned = false;
         });
-        _laserController.repeat(reverse: true);
-        
-        await _processCardImage(image.path, isFront: isFront);
       }
     } catch (e) {
       debugPrint('Error picking image: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error selecting image: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error selecting image: $e')),
+        );
+      }
     }
   }
 
-  Future<void> _processCardImage(String path, {required bool isFront}) async {
-    final ocrResult = await OcrService.scanCardImage(path);
-    String? croppedFacePath;
-    String? croppedSigPath;
+  /// Sends the front (and optional back) image to Gemini 2.5 Flash, then crops the
+  /// avatar / signatures on-device with ML Kit face detection.
+  Future<void> _scanNow() async {
+    if (_frontImagePath == null) return;
 
-    if (isFront) {
-      croppedFacePath = await FaceDetectorService.detectAndCropFace(path);
-      croppedSigPath = await FaceDetectorService.detectAndCropSignature(path);
-    } else {
-      croppedSigPath = await FaceDetectorService.cropAuthoritySignature(path);
+    setState(() => _isScanning = true);
+    _laserController.repeat(reverse: true);
+
+    final NidScanResult result = await GeminiNidService.scanNid(
+      frontPath: _frontImagePath!,
+      backPath: _backImagePath,
+    );
+    final CardInfo info = result.info;
+
+    final String? avatar = await FaceDetectorService.detectAndCropFace(_frontImagePath!);
+    final String? holderSig = await FaceDetectorService.detectAndCropSignature(_frontImagePath!);
+    String? authSig;
+    if (_backImagePath != null) {
+      authSig = await FaceDetectorService.cropAuthoritySignature(_backImagePath!);
     }
 
-    if (mounted) {
-      setState(() {
-        _isScanning = false;
-        if (isFront) {
-          _scannedInfo = _scannedInfo.copyWith(
-            englishName: ocrResult.parsedInfo.englishName.isNotEmpty ? ocrResult.parsedInfo.englishName : _scannedInfo.englishName,
-            banglaName: ocrResult.parsedInfo.banglaName.isNotEmpty ? ocrResult.parsedInfo.banglaName : _scannedInfo.banglaName,
-            banglaFatherName: ocrResult.parsedInfo.banglaFatherName.isNotEmpty ? ocrResult.parsedInfo.banglaFatherName : _scannedInfo.banglaFatherName,
-            banglaMotherName: ocrResult.parsedInfo.banglaMotherName.isNotEmpty ? ocrResult.parsedInfo.banglaMotherName : _scannedInfo.banglaMotherName,
-            idNumber: ocrResult.parsedInfo.idNumber.isNotEmpty ? ocrResult.parsedInfo.idNumber : _scannedInfo.idNumber,
-            dateOfBirth: ocrResult.parsedInfo.dateOfBirth.isNotEmpty ? ocrResult.parsedInfo.dateOfBirth : _scannedInfo.dateOfBirth,
-            age: ocrResult.parsedInfo.age.isNotEmpty ? ocrResult.parsedInfo.age : _scannedInfo.age,
-            avatarPath: croppedFacePath ?? _scannedInfo.avatarPath,
-            signaturePath: croppedSigPath ?? _scannedInfo.signaturePath,
-          );
-        } else {
-          _scannedInfo = _scannedInfo.copyWith(
-            address: ocrResult.parsedInfo.address.isNotEmpty ? ocrResult.parsedInfo.address : _scannedInfo.address,
-            bloodGroup: ocrResult.parsedInfo.bloodGroup.isNotEmpty ? ocrResult.parsedInfo.bloodGroup : _scannedInfo.bloodGroup,
-            birthPlace: ocrResult.parsedInfo.birthPlace.isNotEmpty ? ocrResult.parsedInfo.birthPlace : _scannedInfo.birthPlace,
-            issueDate: ocrResult.parsedInfo.issueDate.isNotEmpty ? ocrResult.parsedInfo.issueDate : _scannedInfo.issueDate,
-            authoritySignaturePath: croppedSigPath ?? _scannedInfo.authoritySignaturePath,
-          );
-        }
-        _detectedLines = [..._detectedLines, ...ocrResult.lines];
-      });
-      _laserController.stop();
+    if (!mounted) return;
+    setState(() {
+      _isScanning = false;
+      _hasScanned = true;
+      _scannedInfo = info.copyWith(
+        avatarPath: avatar ?? info.avatarPath,
+        signaturePath: holderSig ?? info.signaturePath,
+        authoritySignaturePath: authSig ?? info.authoritySignaturePath,
+      );
+    });
+    _laserController.stop();
 
+    if (result.hasError) {
+      _showScanError(result.error!);
+    } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${isFront ? "Front" : "Back"} Side scanned successfully!'),
+        const SnackBar(
+          content: Text('NID scanned with Gemini 2.5 Flash!'),
           backgroundColor: AppTheme.secondary,
         ),
       );
     }
+  }
+
+  void _showScanError(String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppTheme.surfaceBg,
+        title: const Row(
+          children: [
+            Icon(Icons.error_outline, color: AppTheme.errorRed, size: 20),
+            SizedBox(width: 8),
+            Text('Scan failed', style: TextStyle(color: Colors.white, fontSize: 16)),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: SelectableText(
+            message,
+            style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12, height: 1.4),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK', style: TextStyle(color: AppTheme.secondary)),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _simulateMockScan(bool isFemale) async {
@@ -128,157 +152,39 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
       _frontImagePath = isFemale ? 'mock_nid_female_front.jpg' : 'mock_nid_male_front.jpg';
       _backImagePath = isFemale ? 'mock_nid_female_back.jpg' : 'mock_nid_male_back.jpg';
       _isScanning = true;
+      _hasScanned = false;
       _scannedInfo = const CardInfo();
-      _detectedLines = [];
     });
     _laserController.repeat(reverse: true);
 
-    await Future.delayed(const Duration(milliseconds: 2500));
+    final NidScanResult result = await GeminiNidService.scanNid(
+      frontPath: _frontImagePath!,
+      backPath: _backImagePath,
+    );
 
-    final ocrFront = await OcrService.scanCardImage(_frontImagePath!);
-    final ocrBack = await OcrService.scanCardImage(_backImagePath!);
-
-    if (mounted) {
-      setState(() {
-        _isScanning = false;
-        _scannedInfo = ocrFront.parsedInfo.copyWith(
-          address: ocrBack.parsedInfo.address,
-          bloodGroup: ocrBack.parsedInfo.bloodGroup,
-          birthPlace: ocrBack.parsedInfo.birthPlace,
-          issueDate: ocrBack.parsedInfo.issueDate,
-          avatarPath: ocrFront.parsedInfo.avatarPath,
-          signaturePath: ocrFront.parsedInfo.signaturePath,
-          authoritySignaturePath: ocrFront.parsedInfo.authoritySignaturePath,
-        );
-        _detectedLines = [...ocrFront.lines, ...ocrBack.lines];
-      });
-      _laserController.stop();
-    }
-  }
-
-  void _assignLineToField(String text, String fieldName) {
+    if (!mounted) return;
     setState(() {
-      switch (fieldName) {
-        case 'banglaName':
-          _scannedInfo = _scannedInfo.copyWith(banglaName: text);
-          break;
-        case 'englishName':
-          _scannedInfo = _scannedInfo.copyWith(englishName: text);
-          break;
-        case 'banglaFatherName':
-          _scannedInfo = _scannedInfo.copyWith(banglaFatherName: text);
-          break;
-        case 'banglaMotherName':
-          _scannedInfo = _scannedInfo.copyWith(banglaMotherName: text);
-          break;
-        case 'idNumber':
-          _scannedInfo = _scannedInfo.copyWith(idNumber: text);
-          break;
-        case 'dateOfBirth':
-          _scannedInfo = _scannedInfo.copyWith(dateOfBirth: text);
-          final yearMatch = RegExp(r'\b(19\d{2}|20[0-2]\d)\b').firstMatch(text);
-          if (yearMatch != null) {
-            final age = DateTime.now().year - int.parse(yearMatch.group(1)!);
-            _scannedInfo = _scannedInfo.copyWith(age: '$age Years');
-          }
-          break;
-        case 'address':
-          _scannedInfo = _scannedInfo.copyWith(address: text);
-          break;
-        case 'bloodGroup':
-          _scannedInfo = _scannedInfo.copyWith(bloodGroup: text);
-          break;
-        case 'birthPlace':
-          _scannedInfo = _scannedInfo.copyWith(birthPlace: text);
-          break;
-        case 'issueDate':
-          _scannedInfo = _scannedInfo.copyWith(issueDate: text);
-          break;
-      }
+      _isScanning = false;
+      _hasScanned = true;
+      _scannedInfo = result.info;
     });
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Mapped to ${fieldName.toUpperCase()}: "$text"'),
-        duration: const Duration(seconds: 1),
-      ),
-    );
+    _laserController.stop();
   }
 
-  void _showMappingMenu(String text) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: AppTheme.surfaceBg,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return SafeArea(
-          child: SingleChildScrollView(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 20.0),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                    child: Text(
-                      'Map text: "$text"',
-                      textAlign: TextAlign.center,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  const Divider(color: AppTheme.borderCol),
-                  _buildMappingOption(context, text, 'banglaName', Icons.person, 'Bangla Name (নাম)'),
-                  _buildMappingOption(context, text, 'englishName', Icons.person_outline, 'English Name (Name)'),
-                  _buildMappingOption(context, text, 'banglaFatherName', Icons.escalator_warning, 'Bangla Father\'s Name (পিতা)'),
-                  _buildMappingOption(context, text, 'banglaMotherName', Icons.escalator_warning_outlined, 'Bangla Mother\'s Name (মাতা)'),
-                  _buildMappingOption(context, text, 'idNumber', Icons.pin, 'ID Card Number (ID NO)'),
-                  _buildMappingOption(context, text, 'dateOfBirth', Icons.cake, 'Date of Birth'),
-                  _buildMappingOption(context, text, 'address', Icons.home, 'Home Address'),
-                  _buildMappingOption(context, text, 'bloodGroup', Icons.bloodtype, 'Blood Group'),
-                  _buildMappingOption(context, text, 'birthPlace', Icons.location_city, 'Place of Birth'),
-                  _buildMappingOption(context, text, 'issueDate', Icons.date_range, 'Date of Issue'),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildMappingOption(
-    BuildContext context,
-    String text,
-    String field,
-    IconData icon,
-    String title,
-  ) {
-    return ListTile(
-      leading: Icon(icon, color: AppTheme.secondary),
-      title: Text(title, style: const TextStyle(color: AppTheme.textPrimary)),
-      onTap: () {
-        Navigator.pop(context);
-        _assignLineToField(text, field);
-      },
-    );
+  void _resetScan() {
+    setState(() {
+      _frontImagePath = null;
+      _backImagePath = null;
+      _scannedInfo = const CardInfo();
+      _hasScanned = false;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    final hasImage = _frontImagePath != null || _backImagePath != null;
-
     return Scaffold(
       appBar: AppBar(
-        title: const Text('CARD SCANNER'),
+        title: const Text('NID SCANNER'),
       ),
       body: SingleChildScrollView(
         child: Padding(
@@ -295,18 +201,17 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
               ),
               const SizedBox(height: 24),
 
-              if (!hasImage && !_isScanning) ...[
-                const SizedBox(height: 20),
-                _buildSimulationOptions(),
-              ] else if (_isScanning) ...[
+              if (_isScanning) ...[
                 _buildScannerProcessingIndicator(),
-              ] else ...[
+              ] else if (_hasScanned) ...[
                 _buildExtractedInfoForm(),
-                const SizedBox(height: 20),
-                _buildDetectedTextMapper(),
                 const SizedBox(height: 32),
                 _buildActionButtons(),
-              ]
+              ] else if (_frontImagePath != null) ...[
+                _buildScanCta(),
+              ] else ...[
+                _buildSimulationOptions(),
+              ],
             ],
           ),
         ),
@@ -359,7 +264,7 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
   Widget _buildViewport({required bool isFront}) {
     final path = isFront ? _frontImagePath : _backImagePath;
     final hasImage = path != null;
-    final isMock = path?.endsWith('.jpg') ?? false;
+    final isMock = path?.contains('mock') ?? false;
 
     return Expanded(
       child: Column(
@@ -448,7 +353,7 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
                         width: double.infinity,
                         height: double.infinity,
                       ),
-                    
+
                     if (_isScanning && hasImage)
                       AnimatedBuilder(
                         animation: _laserAnimation,
@@ -483,6 +388,53 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
     );
   }
 
+  Widget _buildScanCta() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: AppTheme.surfaceBg,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppTheme.borderCol),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.auto_awesome, color: AppTheme.secondary, size: 18),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  _backImagePath == null
+                      ? 'Front side ready. Add the back side for address, blood group & issue date — or scan now.'
+                      : 'Front & back ready. Tap scan to extract all NID details with Gemini.',
+                  style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11, height: 1.3),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        Container(
+          decoration: BoxDecoration(
+            gradient: AppTheme.primaryGradient,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: ElevatedButton.icon(
+            onPressed: _scanNow,
+            icon: const Icon(Icons.document_scanner, size: 18),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.transparent,
+              shadowColor: Colors.transparent,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+            ),
+            label: const Text('SCAN WITH GEMINI 2.5 FLASH'),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildSimulationOptions() {
     return Container(
       padding: const EdgeInsets.all(18),
@@ -511,7 +463,7 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
           ),
           const SizedBox(height: 6),
           const Text(
-            'Testing on simulator/desktop? Scan custom mock cards with real Bangla texts to preview the NID layout flow.',
+            'No Firebase configured or testing on desktop? Preview the NID layout flow with realistic Bangla sample data.',
             style: TextStyle(color: AppTheme.textSecondary, fontSize: 11, height: 1.3),
           ),
           const SizedBox(height: 16),
@@ -562,7 +514,7 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
             ),
             const SizedBox(height: 16),
             const Text(
-              'EXTRACTING CARD DETAILS...',
+              'ANALYZING WITH GEMINI 2.5 FLASH...',
               style: TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.bold,
@@ -572,7 +524,7 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
             ),
             const SizedBox(height: 6),
             const Text(
-              'Running OCR & Face detection engines',
+              'Reading Bangla & English fields and detecting the photo',
               style: TextStyle(color: AppTheme.textSecondary, fontSize: 11),
             ),
           ],
@@ -596,7 +548,7 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text(
-                'AUTO-EXTRACTED DATA',
+                'EXTRACTED DATA',
                 style: TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
@@ -613,7 +565,7 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
                     border: Border.all(color: AppTheme.secondary, width: 1.5),
                   ),
                   child: ClipOval(
-                    child: (_frontImagePath?.startsWith('mock_') ?? false)
+                    child: (_frontImagePath?.contains('mock') ?? false)
                         ? Container(
                             color: AppTheme.primary,
                             child: const Icon(Icons.check, size: 16, color: Colors.white),
@@ -626,20 +578,25 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
                 ),
             ],
           ),
+          const SizedBox(height: 6),
+          const Text(
+            'Review and correct any field before generating the card.',
+            style: TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+          ),
           const SizedBox(height: 16),
           _buildFormRow(Icons.person, 'Name (English)', _scannedInfo.englishName, (val) {
             _scannedInfo = _scannedInfo.copyWith(englishName: val);
           }),
-          _buildFormRow(Icons.person, 'নাম (বাংলা) - Type or map below', _scannedInfo.banglaName, (val) {
+          _buildFormRow(Icons.person, 'নাম (বাংলা)', _scannedInfo.banglaName, (val) {
             _scannedInfo = _scannedInfo.copyWith(banglaName: val);
           }),
           _buildFormRow(Icons.pin, 'ID Number', _scannedInfo.idNumber, (val) {
             _scannedInfo = _scannedInfo.copyWith(idNumber: val);
           }),
-          _buildFormRow(Icons.escalator_warning, 'পিতা (বাংলা) - Type or map below', _scannedInfo.banglaFatherName, (val) {
+          _buildFormRow(Icons.escalator_warning, 'পিতা (বাংলা)', _scannedInfo.banglaFatherName, (val) {
             _scannedInfo = _scannedInfo.copyWith(banglaFatherName: val);
           }),
-          _buildFormRow(Icons.escalator_warning_outlined, 'মাতা (বাংলা) - Type or map below', _scannedInfo.banglaMotherName, (val) {
+          _buildFormRow(Icons.escalator_warning_outlined, 'মাতা (বাংলা)', _scannedInfo.banglaMotherName, (val) {
             _scannedInfo = _scannedInfo.copyWith(banglaMotherName: val);
           }),
           _buildFormRow(Icons.cake, 'Date of Birth', _scannedInfo.dateOfBirth, (val) {
@@ -690,72 +647,12 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
     );
   }
 
-  Widget _buildDetectedTextMapper() {
-    if (_detectedLines.isEmpty) return const SizedBox();
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const SizedBox(height: 20),
-        const Row(
-          children: [
-            Icon(Icons.edit_road, color: AppTheme.secondary, size: 16),
-            SizedBox(width: 6),
-            Text(
-              'INTERACTIVE OCR TEXT RE-ASSIGNMENT',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 11,
-                letterSpacing: 0.5,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        const Text(
-          'Tap any text snippet below to assign it directly to a specific field. (Note: standard mobile OCR will extract English text; please type Bangla fields manually if not automatically mapped.)',
-          style: TextStyle(color: AppTheme.textSecondary, fontSize: 11, height: 1.3),
-        ),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: _detectedLines.map((line) {
-            final cleaned = line.text.trim();
-            if (cleaned.length < 2) return const SizedBox();
-            return ActionChip(
-              backgroundColor: AppTheme.surfaceBg,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-                side: const BorderSide(color: AppTheme.borderCol),
-              ),
-              avatar: const Icon(Icons.add, size: 12, color: AppTheme.secondary),
-              label: Text(
-                cleaned,
-                style: const TextStyle(fontSize: 11, color: AppTheme.textPrimary),
-              ),
-              onPressed: () => _showMappingMenu(cleaned),
-            );
-          }).toList(),
-        ),
-      ],
-    );
-  }
-
   Widget _buildActionButtons() {
     return Row(
       children: [
         Expanded(
           child: OutlinedButton(
-            onPressed: () {
-              setState(() {
-                _frontImagePath = null;
-                _backImagePath = null;
-                _scannedInfo = const CardInfo();
-                _detectedLines = [];
-              });
-            },
+            onPressed: _resetScan,
             style: OutlinedButton.styleFrom(
               foregroundColor: AppTheme.errorRed,
               side: const BorderSide(color: AppTheme.errorRed),

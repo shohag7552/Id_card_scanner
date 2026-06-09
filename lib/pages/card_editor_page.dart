@@ -56,9 +56,11 @@ class _CardEditorPageState extends State<CardEditorPage> {
       }
     } catch (e) {
       debugPrint('Error picking avatar: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error selecting avatar: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error selecting avatar: $e')),
+        );
+      }
     }
   }
 
@@ -321,7 +323,7 @@ class _CardEditorPageState extends State<CardEditorPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('TEMPLATE EDITOR'),
+        title: const Text('Template Editor'),
         actions: [
           IconButton(
             icon: const Icon(Icons.share, color: AppTheme.secondary),
@@ -435,26 +437,22 @@ class _CardEditorPageState extends State<CardEditorPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          const Text(
+            'EDIT DETAILS',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 12,
+              letterSpacing: 1.0,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
             children: [
-              const Text(
-                'EDIT DETAILS',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
-                  letterSpacing: 1.0,
-                ),
-              ),
-              Wrap(
-                spacing: 8,
-                children: [
-                  _buildEditorActionButton('Photo', _pickNewAvatar, Icons.add_photo_alternate),
-                  _buildEditorActionButton('Holder Sign', _pickNewSignature, Icons.edit),
-                  _buildEditorActionButton('Auth Sign', _pickNewAuthoritySignature, Icons.draw),
-                ],
-              ),
+              _buildEditorActionButton('Photo', _pickNewAvatar, Icons.add_photo_alternate),
+              _buildEditorActionButton('Holder Sign', _pickNewSignature, Icons.edit),
+              _buildEditorActionButton('Auth Sign', _pickNewAuthoritySignature, Icons.draw),
             ],
           ),
           const SizedBox(height: 16),
