@@ -6,6 +6,8 @@ import 'dart:ui' as ui;
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
 import '../models/card_info.dart';
 import '../theme/app_theme.dart';
 import '../widgets/card_template_widgets.dart';
@@ -96,11 +98,12 @@ class _CardEditorPageState extends State<CardEditorPage> {
     }
   }
 
-  Future<String?> _captureKeyAsImage(GlobalKey key) async {
+  /// Renders the widget behind [key] to PNG bytes. Returns null on failure.
+  Future<Uint8List?> _capturePngBytes(GlobalKey key) async {
     try {
       final RenderRepaintBoundary? boundary =
           key.currentContext?.findRenderObject() as RenderRepaintBoundary?;
-      
+
       if (boundary == null) {
         throw Exception("RepaintBoundary render object not found.");
       }
@@ -108,22 +111,30 @@ class _CardEditorPageState extends State<CardEditorPage> {
       final ui.Image image = await boundary.toImage(pixelRatio: 3.0);
       final ByteData? byteData =
           await image.toByteData(format: ui.ImageByteFormat.png);
-      
+
       if (byteData == null) {
         throw Exception("Failed to convert image to byte data.");
       }
 
-      final Uint8List pngBytes = byteData.buffer.asUint8List();
+      return byteData.buffer.asUint8List();
+    } catch (e) {
+      debugPrint("Error rendering card image: $e");
+      return null;
+    }
+  }
 
+  /// Renders the widget behind [key] to a temporary PNG file. Returns its path.
+  Future<String?> _captureKeyAsImage(GlobalKey key) async {
+    final Uint8List? pngBytes = await _capturePngBytes(key);
+    if (pngBytes == null) return null;
+    try {
       final Directory tempDir = await getTemporaryDirectory();
       final String path =
           '${tempDir.path}/id_card_${key.hashCode}_${DateTime.now().millisecondsSinceEpoch}.png';
-      
-      final File file = File(path);
-      await file.writeAsBytes(pngBytes);
+      await File(path).writeAsBytes(pngBytes);
       return path;
     } catch (e) {
-      debugPrint("Error exporting card image: $e");
+      debugPrint("Error writing card image: $e");
       return null;
     }
   }
@@ -182,124 +193,245 @@ class _CardEditorPageState extends State<CardEditorPage> {
     }
   }
 
-  Future<void> _saveCardLocal() async {
-    if (_selectedTemplate == CardTemplateType.bangladeshNid) {
-      showModalBottomSheet(
-        context: context,
-        backgroundColor: AppTheme.surfaceBg,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        builder: (context) {
-          return SafeArea(
+  void _downloadCard() {
+    final isNid = _selectedTemplate == CardTemplateType.bangladeshNid;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppTheme.surfaceBg,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 const ListTile(
                   title: Text(
-                    'Export NID Card',
+                    'Download Card',
                     style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 16),
+                  ),
+                  subtitle: Text(
+                    'Choose a format and side to export',
+                    style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
                   ),
                 ),
                 const Divider(color: AppTheme.borderCol),
-                ListTile(
-                  leading: const Icon(Icons.credit_card, color: AppTheme.secondary),
-                  title: const Text('Save Front Side Only', style: TextStyle(color: Colors.white)),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _executeSave(_frontRepaintKey);
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.flip, color: AppTheme.secondary),
-                  title: const Text('Save Back Side Only', style: TextStyle(color: Colors.white)),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _executeSave(_backRepaintKey);
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.view_stream, color: AppTheme.secondary),
-                  title: const Text('Save Both Sides (Combined)', style: TextStyle(color: Colors.white)),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _executeSave(_repaintKey);
-                  },
-                ),
+                _sheetSectionLabel('PNG IMAGE'),
+                if (isNid) ...[
+                  _downloadTile(Icons.credit_card, 'Front Side (PNG)',
+                      () => _downloadPng([_frontRepaintKey], 'front')),
+                  _downloadTile(Icons.flip, 'Back Side (PNG)',
+                      () => _downloadPng([_backRepaintKey], 'back')),
+                  _downloadTile(Icons.view_stream, 'Both Sides (PNG)',
+                      () => _downloadPng([_repaintKey], 'both')),
+                ] else
+                  _downloadTile(Icons.image, 'Download as PNG',
+                      () => _downloadPng([_repaintKey], 'card')),
+                const Divider(color: AppTheme.borderCol),
+                _sheetSectionLabel('PDF DOCUMENT'),
+                if (isNid) ...[
+                  _downloadTile(Icons.picture_as_pdf, 'Front & Back (PDF)',
+                      () => _downloadPdf([_frontRepaintKey, _backRepaintKey], 'front-back')),
+                  _downloadTile(Icons.picture_as_pdf_outlined, 'Front Side (PDF)',
+                      () => _downloadPdf([_frontRepaintKey], 'front')),
+                  _downloadTile(Icons.picture_as_pdf_outlined, 'Back Side (PDF)',
+                      () => _downloadPdf([_backRepaintKey], 'back')),
+                ] else
+                  _downloadTile(Icons.picture_as_pdf, 'Download as PDF',
+                      () => _downloadPdf([_repaintKey], 'card')),
+                const SizedBox(height: 8),
               ],
             ),
-          );
-        },
-      );
-    } else {
-      _executeSave(_repaintKey);
-    }
+          ),
+        );
+      },
+    );
   }
 
-  Future<void> _executeSave(GlobalKey key) async {
+  Widget _sheetSectionLabel(String text) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+        child: Text(
+          text,
+          style: const TextStyle(
+            color: AppTheme.textSecondary,
+            fontSize: 11,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 1.0,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _downloadTile(IconData icon, String title, Future<void> Function() onTap) {
+    return ListTile(
+      leading: Icon(icon, color: AppTheme.secondary),
+      title: Text(title, style: const TextStyle(color: Colors.white)),
+      trailing: const Icon(Icons.download, color: AppTheme.textSecondary, size: 18),
+      onTap: () {
+        Navigator.pop(context);
+        onTap();
+      },
+    );
+  }
+
+  String _safeName() {
+    final raw = _cardInfo.englishName.isNotEmpty ? _cardInfo.englishName : 'card';
+    final cleaned = raw.replaceAll(RegExp(r'[^A-Za-z0-9]+'), '_').replaceAll(RegExp(r'^_+|_+$'), '');
+    return cleaned.isEmpty ? 'card' : cleaned.toLowerCase();
+  }
+
+  /// Captures the given [keys] as PNG and exports a single image (one key) to disk.
+  Future<void> _downloadPng(List<GlobalKey> keys, String suffix) async {
     setState(() => _isSaving = true);
-    final path = await _captureKeyAsImage(key);
+    final Uint8List? bytes = await _capturePngBytes(keys.first);
     setState(() => _isSaving = false);
 
-    if (path != null && mounted) {
-      showDialog(
-        context: context,
-        builder: (context) {
-          return AlertDialog(
-            backgroundColor: AppTheme.surfaceBg,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            title: const Row(
-              children: [
-                Icon(Icons.check_circle, color: AppTheme.secondary),
-                SizedBox(width: 10),
-                Text('CARD EXPORTED', style: TextStyle(color: Colors.white, fontSize: 18)),
-              ],
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Your card template was rendered and saved successfully.',
-                  style: TextStyle(color: AppTheme.textPrimary, fontSize: 13),
-                ),
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: AppTheme.cardBg,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: AppTheme.borderCol),
-                  ),
-                  child: Text(
-                    'Location:\n$path',
-                    style: const TextStyle(color: AppTheme.textSecondary, fontSize: 10, fontFamily: 'monospace'),
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('OK', style: TextStyle(color: AppTheme.secondary)),
-              ),
-              if (!kIsWeb)
-                ElevatedButton(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    Share.shareXFiles([XFile(path)]);
-                  },
-                  child: const Text('Share File'),
-                )
-            ],
-          );
-        },
-      );
-    } else if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Export failed.')),
+    if (bytes == null) {
+      _exportFailed();
+      return;
+    }
+    final filename = '${_safeName()}_$suffix.png';
+    await _deliverFile(bytes, filename);
+  }
+
+  /// Captures the given [keys] (one page each) and exports them as a PDF document.
+  Future<void> _downloadPdf(List<GlobalKey> keys, String suffix) async {
+    setState(() => _isSaving = true);
+    final List<Uint8List> pages = [];
+    for (final key in keys) {
+      final bytes = await _capturePngBytes(key);
+      if (bytes != null) pages.add(bytes);
+    }
+
+    Uint8List? pdfBytes;
+    if (pages.isNotEmpty) {
+      try {
+        pdfBytes = await _buildPdf(pages);
+      } catch (e) {
+        debugPrint('PDF build error: $e');
+      }
+    }
+    setState(() => _isSaving = false);
+
+    if (pdfBytes == null) {
+      _exportFailed();
+      return;
+    }
+    final filename = '${_safeName()}_$suffix.pdf';
+    await _deliverFile(pdfBytes, filename);
+  }
+
+  /// Builds a PDF with each PNG in [pageImages] centered on its own A4 page.
+  Future<Uint8List> _buildPdf(List<Uint8List> pageImages) async {
+    final doc = pw.Document();
+    for (final imgBytes in pageImages) {
+      final image = pw.MemoryImage(imgBytes);
+      doc.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(24),
+          build: (context) => pw.Center(
+            child: pw.Image(image, fit: pw.BoxFit.contain),
+          ),
+        ),
       );
     }
+    return doc.save();
+  }
+
+  /// Writes [bytes] to the documents directory and offers to share/save it.
+  Future<void> _deliverFile(Uint8List bytes, String filename) async {
+    String? path;
+    try {
+      Directory dir;
+      try {
+        dir = await getApplicationDocumentsDirectory();
+      } catch (_) {
+        dir = await getTemporaryDirectory();
+      }
+      path = '${dir.path}/$filename';
+      await File(path).writeAsBytes(bytes);
+    } catch (e) {
+      debugPrint('Error saving file: $e');
+      _exportFailed();
+      return;
+    }
+
+    if (!mounted) return;
+    final savedPath = path;
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: AppTheme.surfaceBg,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.check_circle, color: AppTheme.secondary),
+              SizedBox(width: 10),
+              Text('SAVED', style: TextStyle(color: Colors.white, fontSize: 18)),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '$filename was generated successfully.',
+                style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppTheme.cardBg,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppTheme.borderCol),
+                ),
+                child: Text(
+                  'Location:\n$savedPath',
+                  style: const TextStyle(color: AppTheme.textSecondary, fontSize: 10, fontFamily: 'monospace'),
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Tap "Save / Share" to copy it to Downloads, Files or Drive.',
+                style: TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK', style: TextStyle(color: AppTheme.secondary)),
+            ),
+            if (!kIsWeb)
+              ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.pop(context);
+                  Share.shareXFiles([XFile(savedPath)]);
+                },
+                icon: const Icon(Icons.ios_share, size: 16),
+                label: const Text('Save / Share'),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _exportFailed() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Export failed. Make sure the preview is visible.')),
+    );
   }
 
   Future<void> _executeShare(GlobalKey key) async {
@@ -670,11 +802,11 @@ class _CardEditorPageState extends State<CardEditorPage> {
               borderRadius: BorderRadius.circular(12),
             ),
             child: ElevatedButton.icon(
-              onPressed: _isSaving ? null : _saveCardLocal,
+              onPressed: _isSaving ? null : _downloadCard,
               icon: _isSaving
                   ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                   : const Icon(Icons.download, size: 18),
-              label: const Text('SAVE TEMPLATE'),
+              label: const Text('DOWNLOAD'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.transparent,
                 shadowColor: Colors.transparent,

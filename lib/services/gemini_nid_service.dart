@@ -26,7 +26,12 @@ class NidScanResult {
 /// configure`, or on desktop/web), it falls back to a simulated result so the
 /// app still runs.
 class GeminiNidService {
-  static const String _modelName = 'gemini-2.5-flash';
+  /// Models tried in order. If the primary is overloaded (HTTP 500/503), the
+  /// scan automatically falls back to the next one.
+  static const List<String> _models = ['gemini-2.5-flash', 'gemini-2.5-flash-lite'];
+
+  /// Retry attempts per model before moving on to the fallback.
+  static const int _maxAttemptsPerModel = 3;
 
   /// Relaxed safety thresholds so legitimate ID extraction isn't blocked.
   static final List<SafetySetting> _safetySettings = [
@@ -127,25 +132,54 @@ Rules:
     }
 
     try {
-      final model = FirebaseAI.googleAI().generativeModel(
-        model: _modelName,
-        generationConfig: GenerationConfig(
-          responseMimeType: 'application/json',
-          responseSchema: _nidSchema,
-        ),
-        // Reading a government ID is legitimate, but the default filters can
-        // occasionally block PII extraction. Relax them so the scan isn't
-        // silently refused.
-        safetySettings: _safetySettings,
-      );
-
       final parts = <Part>[TextPart(_prompt)];
       parts.add(InlineDataPart('image/jpeg', await File(frontPath).readAsBytes()));
       if (backPath != null) {
         parts.add(InlineDataPart('image/jpeg', await File(backPath).readAsBytes()));
       }
 
-      final response = await model.generateContent([Content.multi(parts)]);
+      // Try each model, retrying transient 500/503 "overloaded" errors with
+      // exponential backoff before falling back to the next model.
+      GenerateContentResponse? response;
+      Object? lastError;
+      outer:
+      for (final modelName in _models) {
+        final model = FirebaseAI.googleAI().generativeModel(
+          model: modelName,
+          generationConfig: GenerationConfig(
+            responseMimeType: 'application/json',
+            responseSchema: _nidSchema,
+          ),
+          // Reading a government ID is legitimate, but the default filters can
+          // occasionally block PII extraction. Relax them so the scan isn't
+          // silently refused.
+          safetySettings: _safetySettings,
+        );
+
+        for (int attempt = 1; attempt <= _maxAttemptsPerModel; attempt++) {
+          try {
+            response = await model.generateContent([Content.multi(parts)]);
+            break outer;
+          } catch (e) {
+            lastError = e;
+            if (!_isRetryable(e)) {
+              // Permanent error (bad key, permission, etc.) — report it now.
+              return NidScanResult(info: const CardInfo(), error: _friendlyError(e));
+            }
+            debugPrint('Gemini "$modelName" attempt $attempt failed (retryable): $e');
+            if (attempt < _maxAttemptsPerModel) {
+              await Future.delayed(Duration(milliseconds: 600 * (1 << (attempt - 1))));
+            }
+          }
+        }
+      }
+
+      if (response == null) {
+        return NidScanResult(
+          info: const CardInfo(),
+          error: _friendlyError(lastError ?? 'Unknown error'),
+        );
+      }
 
       // 1. Whole prompt rejected (e.g. safety) before any output.
       final blockReason = response.promptFeedback?.blockReason;
@@ -188,6 +222,19 @@ Rules:
     }
   }
 
+  /// True for transient server errors that are worth retrying (overload /
+  /// temporary unavailability), per the message text the SDK surfaces.
+  static bool _isRetryable(Object e) {
+    final m = e.toString().toLowerCase();
+    return m.contains('500') ||
+        m.contains('503') ||
+        m.contains('internal') ||
+        m.contains('unavailable') ||
+        m.contains('overloaded') ||
+        m.contains('high demand') ||
+        m.contains('try again');
+  }
+
   /// Turns raw SDK exceptions into actionable hints for the most common setup
   /// problems (API not enabled, billing, network, etc.).
   static String _friendlyError(Object e) {
@@ -200,8 +247,13 @@ Rules:
       return 'Permission denied. Open Firebase Console → Build → Firebase AI '
           'Logic and enable the Gemini Developer API for this project, then retry.\n\n$msg';
     }
+    if (_isRetryable(e)) {
+      return 'Gemini is temporarily overloaded (high demand). We retried '
+          'automatically but it is still busy. Please wait a moment and tap '
+          'scan again.\n\n$msg';
+    }
     if (lower.contains('not found') || lower.contains('404')) {
-      return 'Model "$_modelName" was not found for this backend. '
+      return 'Model "${_models.first}" was not found for this backend. '
           'It may not be available yet on the Gemini Developer API.\n\n$msg';
     }
     if (lower.contains('socket') ||
