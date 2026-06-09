@@ -3,6 +3,7 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  downloadsfolder
   file_selector_windows
   firebase_app_check
   firebase_auth

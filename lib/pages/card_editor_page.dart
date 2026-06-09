@@ -8,6 +8,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
+// Hide `context` (re-exported from package:path) so it doesn't shadow Flutter's BuildContext.
+import 'package:downloadsfolder/downloadsfolder.dart' hide context;
 import '../models/card_info.dart';
 import '../theme/app_theme.dart';
 import '../widgets/card_template_widgets.dart';
@@ -346,77 +348,95 @@ class _CardEditorPageState extends State<CardEditorPage> {
     return doc.save();
   }
 
-  /// Writes [bytes] to the documents directory and offers to share/save it.
+  /// Saves [bytes] into the device's public Downloads folder. On Android 10+
+  /// this goes through MediaStore; on older versions it copies into the public
+  /// Downloads directory. Falls back to a share sheet if a direct write fails.
   Future<void> _deliverFile(Uint8List bytes, String filename) async {
-    String? path;
+    // The Downloads copy works from a real file, so stage it in temp first.
+    String tempPath;
     try {
-      Directory dir;
-      try {
-        dir = await getApplicationDocumentsDirectory();
-      } catch (_) {
-        dir = await getTemporaryDirectory();
-      }
-      path = '${dir.path}/$filename';
-      await File(path).writeAsBytes(bytes);
+      final Directory tempDir = await getTemporaryDirectory();
+      tempPath = '${tempDir.path}/$filename';
+      await File(tempPath).writeAsBytes(bytes);
     } catch (e) {
-      debugPrint('Error saving file: $e');
+      debugPrint('Error staging file: $e');
       _exportFailed();
       return;
     }
 
+    bool savedToDownloads = false;
+    try {
+      final bool? ok = await copyFileIntoDownloadFolder(tempPath, filename);
+      savedToDownloads = ok ?? false;
+    } catch (e) {
+      debugPrint('Downloads copy failed: $e');
+    }
+
     if (!mounted) return;
-    final savedPath = path;
+
+    if (savedToDownloads) {
+      _showSavedDialog(
+        title: 'SAVED TO DOWNLOADS',
+        body: '$filename was saved to your device\'s Downloads folder.',
+        sharePath: tempPath,
+        canOpenDownloads: true,
+      );
+    } else {
+      _showSavedDialog(
+        title: 'FILE READY',
+        body: 'Could not write directly to Downloads on this device. '
+            'Tap "Save / Share" to store $filename in Downloads, Files or Drive.',
+        sharePath: tempPath,
+        canOpenDownloads: false,
+      );
+    }
+  }
+
+  void _showSavedDialog({
+    required String title,
+    required String body,
+    required String sharePath,
+    required bool canOpenDownloads,
+  }) {
     showDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
           backgroundColor: AppTheme.surfaceBg,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Row(
+          title: Row(
             children: [
-              Icon(Icons.check_circle, color: AppTheme.secondary),
-              SizedBox(width: 10),
-              Text('SAVED', style: TextStyle(color: Colors.white, fontSize: 18)),
+              const Icon(Icons.check_circle, color: AppTheme.secondary),
+              const SizedBox(width: 10),
+              Text(title, style: const TextStyle(color: Colors.white, fontSize: 18)),
             ],
           ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '$filename was generated successfully.',
-                style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13),
-              ),
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: AppTheme.cardBg,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppTheme.borderCol),
-                ),
-                child: Text(
-                  'Location:\n$savedPath',
-                  style: const TextStyle(color: AppTheme.textSecondary, fontSize: 10, fontFamily: 'monospace'),
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Tap "Save / Share" to copy it to Downloads, Files or Drive.',
-                style: TextStyle(color: AppTheme.textSecondary, fontSize: 11),
-              ),
-            ],
+          content: Text(
+            body,
+            style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13, height: 1.4),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
               child: const Text('OK', style: TextStyle(color: AppTheme.secondary)),
             ),
+            if (canOpenDownloads)
+              TextButton(
+                onPressed: () async {
+                  Navigator.pop(context);
+                  try {
+                    await openDownloadFolder();
+                  } catch (e) {
+                    debugPrint('Could not open Downloads: $e');
+                  }
+                },
+                child: const Text('Open Downloads', style: TextStyle(color: AppTheme.secondary)),
+              ),
             if (!kIsWeb)
               ElevatedButton.icon(
                 onPressed: () {
                   Navigator.pop(context);
-                  Share.shareXFiles([XFile(savedPath)]);
+                  Share.shareXFiles([XFile(sharePath)]);
                 },
                 icon: const Icon(Icons.ios_share, size: 16),
                 label: const Text('Save / Share'),

@@ -1,6 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Required for Gemini (Firebase AI) network calls in release builds. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Saving to the public Downloads folder on Android 9 and below.
+         Android 10+ uses MediaStore and needs no storage permission. -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28"/>
     <application
         android:label="card_scanner"
         android:name="${applicationName}"

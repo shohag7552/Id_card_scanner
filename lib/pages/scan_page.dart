@@ -306,24 +306,28 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
                   alignment: Alignment.center,
                   children: [
                     if (!hasImage)
-                      Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            isFront ? Icons.add_photo_alternate : Icons.flip_to_back,
-                            size: 32,
-                            color: AppTheme.borderCol,
-                          ),
-                          const SizedBox(height: 6),
-                          const Text(
-                            'Tap to upload',
-                            style: TextStyle(
-                              color: AppTheme.textSecondary,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
+                      SizedBox(
+                        width: double.infinity,
+                        height: double.infinity,
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              isFront ? Icons.add_photo_alternate : Icons.flip_to_back,
+                              size: 32,
+                              color: AppTheme.borderCol,
                             ),
-                          ),
-                        ],
+                            const SizedBox(height: 6),
+                            const Text(
+                              'Tap to upload',
+                              style: TextStyle(
+                                color: AppTheme.textSecondary,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
                       )
                     else if (isMock)
                       Container(
@@ -349,7 +353,7 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
                     else
                       Image.file(
                         File(path),
-                        fit: BoxFit.cover,
+                        fit: BoxFit.contain,
                         width: double.infinity,
                         height: double.infinity,
                       ),
@@ -661,7 +665,7 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
                 borderRadius: BorderRadius.circular(12),
               ),
             ),
-            child: const Text('RESET SCAN'),
+            child: const Text('Reset Scan'),
           ),
         ),
         const SizedBox(width: 14),
@@ -688,7 +692,7 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
                 shadowColor: Colors.transparent,
                 padding: const EdgeInsets.symmetric(vertical: 16),
               ),
-              child: const Text('PROCEED TO TEMPLATE'),
+              child: const Text('Proceed', style: TextStyle(fontSize: 14),),
             ),
           ),
         ),
