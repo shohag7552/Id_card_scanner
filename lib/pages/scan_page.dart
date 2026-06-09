@@ -1,9 +1,9 @@
-import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/card_info.dart';
 import '../services/gemini_nid_service.dart';
-import '../services/face_detector_service.dart';
+import '../services/face_cropper.dart';
 import '../theme/app_theme.dart';
 import 'card_editor_page.dart';
 import '../widgets/card_template_widgets.dart';
@@ -20,6 +20,8 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
 
   String? _frontImagePath;
   String? _backImagePath;
+  Uint8List? _frontBytes;
+  Uint8List? _backBytes;
   bool _isScanning = false;
   bool _hasScanned = false;
 
@@ -54,11 +56,14 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
       );
 
       if (image != null) {
+        final Uint8List bytes = await image.readAsBytes();
         setState(() {
           if (isFront) {
             _frontImagePath = image.path;
+            _frontBytes = bytes;
           } else {
             _backImagePath = image.path;
+            _backBytes = bytes;
           }
           // Re-picking after a scan lets the user run it again with the new image.
           _hasScanned = false;
@@ -77,33 +82,45 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
   /// Sends the front (and optional back) image to Gemini 2.5 Flash, then crops the
   /// avatar / signatures on-device with ML Kit face detection.
   Future<void> _scanNow() async {
-    if (_frontImagePath == null) return;
+    if (_frontBytes == null) return;
 
     setState(() => _isScanning = true);
     _laserController.repeat(reverse: true);
 
+    // Gemini extracts the text AND returns photo/signatures cropped from its
+    // bounding boxes — this is the baseline used on web and Windows.
     final NidScanResult result = await GeminiNidService.scanNid(
-      frontPath: _frontImagePath!,
-      backPath: _backImagePath,
+      frontBytes: _frontBytes!,
+      backBytes: _backBytes,
     );
-    final CardInfo info = result.info;
+    CardInfo info = result.info;
 
-    final String? avatar = await FaceDetectorService.detectAndCropFace(_frontImagePath!);
-    final String? holderSig = await FaceDetectorService.detectAndCropSignature(_frontImagePath!);
-    String? authSig;
-    if (_backImagePath != null) {
-      authSig = await FaceDetectorService.cropAuthoritySignature(_backImagePath!);
+    // On Android/iOS, refine the PHOTO and HOLDER signature with ML Kit (face
+    // detection is more accurate), falling back to the Gemini crop if it finds
+    // nothing.
+    if (!kIsWeb && _frontImagePath != null) {
+      final mlAvatar = await FaceCropper.detectAndCropFace(_frontImagePath!);
+      final mlHolderSig = await FaceCropper.detectAndCropSignature(_frontImagePath!);
+      info = info.copyWith(
+        avatarBytes: mlAvatar ?? info.avatarBytes,
+        signatureBytes: mlHolderSig ?? info.signatureBytes,
+      );
+    }
+    // Authority signature: ML Kit has no real detection here (it blindly crops a
+    // fixed region that includes the caption text), so prefer Gemini's tight box
+    // and only fall back to the fixed-region crop when Gemini didn't locate it.
+    if (!kIsWeb && _backImagePath != null && info.authoritySignatureBytes == null) {
+      final mlAuthSig = await FaceCropper.cropAuthoritySignature(_backImagePath!);
+      info = info.copyWith(
+        authoritySignatureBytes: mlAuthSig ?? info.authoritySignatureBytes,
+      );
     }
 
     if (!mounted) return;
     setState(() {
       _isScanning = false;
       _hasScanned = true;
-      _scannedInfo = info.copyWith(
-        avatarPath: avatar ?? info.avatarPath,
-        signaturePath: holderSig ?? info.signaturePath,
-        authoritySignaturePath: authSig ?? info.authoritySignaturePath,
-      );
+      _scannedInfo = info;
     });
     _laserController.stop();
 
@@ -151,16 +168,16 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
     setState(() {
       _frontImagePath = isFemale ? 'mock_nid_female_front.jpg' : 'mock_nid_male_front.jpg';
       _backImagePath = isFemale ? 'mock_nid_female_back.jpg' : 'mock_nid_male_back.jpg';
+      _frontBytes = null;
+      _backBytes = null;
       _isScanning = true;
       _hasScanned = false;
       _scannedInfo = const CardInfo();
     });
     _laserController.repeat(reverse: true);
 
-    final NidScanResult result = await GeminiNidService.scanNid(
-      frontPath: _frontImagePath!,
-      backPath: _backImagePath,
-    );
+    await Future.delayed(const Duration(milliseconds: 1500));
+    final NidScanResult result = GeminiNidService.simulated(isFemale: isFemale);
 
     if (!mounted) return;
     setState(() {
@@ -175,6 +192,8 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
     setState(() {
       _frontImagePath = null;
       _backImagePath = null;
+      _frontBytes = null;
+      _backBytes = null;
       _scannedInfo = const CardInfo();
       _hasScanned = false;
     });
@@ -263,6 +282,7 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
 
   Widget _buildViewport({required bool isFront}) {
     final path = isFront ? _frontImagePath : _backImagePath;
+    final bytes = isFront ? _frontBytes : _backBytes;
     final hasImage = path != null;
     final isMock = path?.contains('mock') ?? false;
 
@@ -350,9 +370,9 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
                           ),
                         ),
                       )
-                    else
-                      Image.file(
-                        File(path),
+                    else if (bytes != null)
+                      Image.memory(
+                        bytes,
                         fit: BoxFit.contain,
                         width: double.infinity,
                         height: double.infinity,
@@ -560,7 +580,7 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
                   letterSpacing: 1,
                 ),
               ),
-              if (_scannedInfo.avatarPath != null)
+              if (_scannedInfo.avatarBytes != null)
                 Container(
                   width: 30,
                   height: 30,
@@ -569,15 +589,10 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
                     border: Border.all(color: AppTheme.secondary, width: 1.5),
                   ),
                   child: ClipOval(
-                    child: (_frontImagePath?.contains('mock') ?? false)
-                        ? Container(
-                            color: AppTheme.primary,
-                            child: const Icon(Icons.check, size: 16, color: Colors.white),
-                          )
-                        : Image.file(
-                            File(_scannedInfo.avatarPath!),
-                            fit: BoxFit.cover,
-                          ),
+                    child: Image.memory(
+                      _scannedInfo.avatarBytes!,
+                      fit: BoxFit.cover,
+                    ),
                   ),
                 ),
             ],

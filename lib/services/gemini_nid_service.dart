@@ -1,10 +1,9 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_ai/firebase_ai.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:path_provider/path_provider.dart';
 import '../models/card_info.dart';
+import 'image_crop_util.dart';
 
 /// Outcome of a Gemini NID scan: the extracted [info], plus an optional
 /// [error] message describing why extraction failed (null on success).
@@ -73,7 +72,30 @@ class GeminiNidService {
         description: 'Place of birth in Bangla (জন্মস্থান).',
       ),
       'issueDate': Schema.string(
-        description: 'Date of issue as printed (প্রদানের তারিখ).',
+        description: 'The DATE OF ISSUE on the BACK side, labelled "প্রদানের তারিখ" '
+            'or "Date of Issue" (usually near the authority signature). Return it '
+            'EXACTLY as printed, keeping Bangla digits if shown in Bangla, e.g. '
+            '"০৮/০৬/২০২৬". This is NOT the date of birth.',
+      ),
+      'photoBox': Schema.array(
+        items: Schema.integer(),
+        description: 'Bounding box of the holder PHOTO in the FIRST (front) image '
+            'as [ymin, xmin, ymax, xmax] normalized to 0-1000.',
+      ),
+      'holderSignatureBox': Schema.array(
+        items: Schema.integer(),
+        description: 'TIGHT bounding box around ONLY the holder\'s handwritten '
+            'signature stroke in the FIRST (front) image, as [ymin, xmin, ymax, '
+            'xmax] normalized to 0-1000. EXCLUDE any printed label text, the name, '
+            'lines or borders — only the signature ink itself.',
+      ),
+      'authoritySignatureBox': Schema.array(
+        items: Schema.integer(),
+        description: 'TIGHT bounding box around ONLY the issuing authority\'s '
+            'handwritten signature/seal mark in the SECOND (back) image, as [ymin, '
+            'xmin, ymax, xmax] normalized to 0-1000. EXCLUDE the printed caption '
+            '"প্রদানকারী কর্তৃপক্ষের স্বাক্ষর", any dates, lines or other text — '
+            'only the signature ink itself.',
       ),
     },
     optionalProperties: const [
@@ -87,6 +109,9 @@ class GeminiNidService {
       'bloodGroup',
       'birthPlace',
       'issueDate',
+      'photoBox',
+      'holderSignatureBox',
+      'authoritySignatureBox',
     ],
   );
 
@@ -101,31 +126,49 @@ Extract these fields and return them as JSON matching the provided schema:
 - The front side usually holds: name (Bangla + English), father, mother, date of birth, ID number.
 - The back side usually holds: address, blood group, birth place, date of issue.
 
+Dates — read very carefully and do NOT mix them up:
+- dateOfBirth is on the FRONT, labelled "Date of Birth" (in English digits, e.g. "20 Dec 2006").
+- issueDate is on the BACK, labelled "প্রদানের তারিখ" or "Date of Issue", usually at the bottom near the issuing authority's signature.
+- Read each digit one by one. Bangla digit map: ০=0, ১=1, ২=2, ৩=3, ৪=4, ৫=5, ৬=6, ৭=7, ৮=8, ৯=9.
+- Return issueDate in the SAME script it is printed in (if printed in Bangla digits, keep Bangla digits), exactly as shown including the "/" separators. Double-check each digit against the image before answering.
+- If you cannot read the issue date clearly, return "" rather than guessing.
+
+Also locate these regions and return their bounding boxes as [ymin, xmin, ymax, xmax]
+normalized to 0-1000 (omit a box if that region is not visible):
+- photoBox: the holder's photograph in the FIRST (front) image.
+- holderSignatureBox: the holder's handwritten signature in the FIRST (front) image.
+- authoritySignatureBox: the issuing authority's signature in the SECOND (back) image.
+
+Signature boxes must be TIGHT around ONLY the handwritten signature ink / seal mark.
+Do NOT include any printed caption text (e.g. "প্রদানকারী কর্তৃপক্ষের স্বাক্ষর"), names,
+dates, underlines, boxes or other surrounding text inside the signature boxes.
+
 Rules:
-- Return an empty string "" for any field that is not visible.
+- Return an empty string "" for any text field that is not visible.
 - Do NOT translate, transliterate, guess, or invent any value. Only return what is actually printed.
 ''';
 
   /// True when Firebase has been initialized and Gemini can be used.
   static bool get isAvailable => Firebase.apps.isNotEmpty;
 
-  /// Scans the NID using the [frontPath] image and, if provided, [backPath].
+  /// Returns a simulated result with realistic Bangla sample data. Used for the
+  /// on-screen "Test Simulation" buttons and as a fallback when Firebase is not
+  /// configured (e.g. on desktop/web before setup).
+  static NidScanResult simulated({required bool isFemale}) {
+    return NidScanResult(info: _simulatedInfo(isFemale));
+  }
+
+  /// Scans the NID from the [frontBytes] image and, if provided, [backBytes].
   /// Returns the extracted [CardInfo] plus an [NidScanResult.error] message when
   /// something goes wrong, so the UI can tell the user exactly what happened
   /// instead of silently showing a blank form.
   static Future<NidScanResult> scanNid({
-    required String frontPath,
-    String? backPath,
+    required Uint8List frontBytes,
+    Uint8List? backBytes,
   }) async {
-    final bool isMock = frontPath.contains('mock') || (backPath?.contains('mock') ?? false);
-
-    if (isMock) {
-      return NidScanResult(info: await _simulatedResult(frontPath));
-    }
-
     if (!isAvailable) {
       return NidScanResult(
-        info: await _simulatedResult(frontPath),
+        info: _simulatedInfo(false),
         error: 'Firebase is not initialized — showing sample data. '
             'Make sure Firebase.initializeApp() succeeded.',
       );
@@ -133,9 +176,9 @@ Rules:
 
     try {
       final parts = <Part>[TextPart(_prompt)];
-      parts.add(InlineDataPart('image/jpeg', await File(frontPath).readAsBytes()));
-      if (backPath != null) {
-        parts.add(InlineDataPart('image/jpeg', await File(backPath).readAsBytes()));
+      parts.add(InlineDataPart('image/jpeg', frontBytes));
+      if (backBytes != null) {
+        parts.add(InlineDataPart('image/jpeg', backBytes));
       }
 
       // Try each model, retrying transient 500/503 "overloaded" errors with
@@ -207,15 +250,25 @@ Rules:
       final map = jsonDecode(text) as Map<String, dynamic>;
       final info = _cardInfoFromMap(map);
 
-      if (info.isEmpty) {
+      // Crop the photo / signatures locally from Gemini's bounding boxes. Pure
+      // Dart cropping, so it works identically on mobile, web and Windows.
+      final infoWithImages = info.copyWith(
+        avatarBytes: cropNormalizedBox(frontBytes, boxFromJson(map['photoBox']), padding: 0.12),
+        // No padding on signatures: the box is already meant to be tight, and
+        // expanding it pulls in the surrounding printed caption text.
+        signatureBytes: cropNormalizedBox(frontBytes, boxFromJson(map['holderSignatureBox']), padding: 0.0),
+        authoritySignatureBytes: cropNormalizedBox(backBytes, boxFromJson(map['authoritySignatureBox']), padding: 0.0),
+      );
+
+      if (infoWithImages.isEmpty) {
         return NidScanResult(
-          info: info,
+          info: infoWithImages,
           error: 'Gemini responded but found no readable fields. '
               'Try clearer, well-lit, straight photos of the card.',
         );
       }
 
-      return NidScanResult(info: info);
+      return NidScanResult(info: infoWithImages);
     } catch (e) {
       debugPrint('Gemini NID scan error: $e');
       return NidScanResult(info: const CardInfo(), error: _friendlyError(e));
@@ -293,14 +346,10 @@ Rules:
     return age > 0 ? '$age Years' : '';
   }
 
-  /// Fallback used on desktop/web or before Firebase is configured, so the NID
-  /// template flow can still be previewed with realistic Bangla data.
-  static Future<CardInfo> _simulatedResult(String frontPath) async {
-    await Future.delayed(const Duration(milliseconds: 1800));
-
-    final bool isFemale = frontPath.contains('female') || frontPath.contains('suraiya');
-
-    final base = isFemale
+  /// Realistic Bangla sample data used for previews / fallback. Images are left
+  /// null so the templates render their built-in placeholders.
+  static CardInfo _simulatedInfo(bool isFemale) {
+    return isFemale
         ? const CardInfo(
             banglaName: 'ছাবরিনা তাবাচ্ছুম সুরাইয়া',
             englishName: 'SUBRINA TABASSUM SURAIYA',
@@ -327,31 +376,5 @@ Rules:
             birthPlace: 'লালমনিরহাট',
             issueDate: '১২/০৫/২০২২',
           );
-
-    // Drop a 1x1 placeholder so the template avatar/signature slots render on
-    // platforms where ML Kit face cropping is unavailable.
-    try {
-      final Directory tempDir = await getTemporaryDirectory();
-      final bytes = Uint8List.fromList([
-        137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1,
-        0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84,
-        120, 1, 99, 96, 96, 96, 0, 0, 0, 5, 0, 1, 165, 246, 69, 122, 0, 0, 0, 0,
-        73, 69, 78, 68, 174, 66, 96, 130,
-      ]);
-      final avatarFile = File('${tempDir.path}/mock_avatar.png');
-      final sigFile = File('${tempDir.path}/mock_sig.png');
-      final authSigFile = File('${tempDir.path}/mock_auth_sig.png');
-      if (!avatarFile.existsSync()) await avatarFile.writeAsBytes(bytes);
-      if (!sigFile.existsSync()) await sigFile.writeAsBytes(bytes);
-      if (!authSigFile.existsSync()) await authSigFile.writeAsBytes(bytes);
-
-      return base.copyWith(
-        avatarPath: avatarFile.path,
-        signaturePath: sigFile.path,
-        authoritySignaturePath: authSigFile.path,
-      );
-    } catch (_) {
-      return base;
-    }
   }
 }

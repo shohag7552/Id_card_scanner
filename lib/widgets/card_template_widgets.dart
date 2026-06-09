@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import '../models/card_info.dart';
 
@@ -44,9 +43,8 @@ class CardTemplateWidget extends StatelessWidget {
 
   // Helper widget to display Avatar (either from cropped file or a placeholder)
   Widget _buildAvatar({required double size, double borderRadius = 0, bool isCircular = true, double? height}) {
-    final hasImage = cardInfo.avatarPath != null && cardInfo.avatarPath!.isNotEmpty;
-    final imageFile = hasImage ? File(cardInfo.avatarPath!) : null;
-    final exists = imageFile != null && imageFile.existsSync();
+    final avatarBytes = cardInfo.avatarBytes;
+    final exists = avatarBytes != null;
 
     return Container(
       width: size,
@@ -59,8 +57,8 @@ class CardTemplateWidget extends StatelessWidget {
       child: ClipRRect(
         borderRadius: isCircular ? BorderRadius.circular(size / 2) : BorderRadius.circular(borderRadius),
         child: exists
-            ? Image.file(
-                imageFile,
+            ? Image.memory(
+                avatarBytes,
                 fit: BoxFit.cover,
               )
             : Container(
@@ -943,14 +941,11 @@ class CardTemplateWidget extends StatelessWidget {
                           // Signature image or text fallback
                           Builder(
                             builder: (context) {
-                              final hasSig = cardInfo.signaturePath != null &&
-                                  cardInfo.signaturePath!.isNotEmpty;
-                              final sigFile = hasSig ? File(cardInfo.signaturePath!) : null;
-                              final exists = sigFile != null && sigFile.existsSync();
-                              
-                              if (exists) {
-                                return Image.file(
-                                  sigFile,
+                              final sigBytes = cardInfo.signatureBytes;
+
+                              if (sigBytes != null) {
+                                return Image.memory(
+                                  sigBytes,
                                   height: 20,
                                   width: 60,
                                   fit: BoxFit.contain,
@@ -1182,14 +1177,11 @@ class CardTemplateWidget extends StatelessWidget {
                   children: [
                     Builder(
                       builder: (context) {
-                        final hasSig = cardInfo.authoritySignaturePath != null &&
-                            cardInfo.authoritySignaturePath!.isNotEmpty;
-                        final sigFile = hasSig ? File(cardInfo.authoritySignaturePath!) : null;
-                        final exists = sigFile != null && sigFile.existsSync();
+                        final authSigBytes = cardInfo.authoritySignatureBytes;
 
-                        if (exists) {
-                          return Image.file(
-                            sigFile,
+                        if (authSigBytes != null) {
+                          return Image.memory(
+                            authSigBytes,
                             height: 20,
                             width: 60,
                             fit: BoxFit.contain,

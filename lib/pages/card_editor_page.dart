@@ -1,16 +1,13 @@
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'dart:ui' as ui;
 import 'package:image_picker/image_picker.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-// Hide `context` (re-exported from package:path) so it doesn't shadow Flutter's BuildContext.
-import 'package:downloadsfolder/downloadsfolder.dart' hide context;
 import '../models/card_info.dart';
+import '../services/file_export.dart';
 import '../theme/app_theme.dart';
 import '../widgets/card_template_widgets.dart';
 
@@ -54,8 +51,9 @@ class _CardEditorPageState extends State<CardEditorPage> {
         imageQuality: 85,
       );
       if (image != null) {
+        final bytes = await image.readAsBytes();
         setState(() {
-          _cardInfo = _cardInfo.copyWith(avatarPath: image.path);
+          _cardInfo = _cardInfo.copyWith(avatarBytes: bytes);
         });
       }
     } catch (e) {
@@ -75,8 +73,9 @@ class _CardEditorPageState extends State<CardEditorPage> {
         imageQuality: 85,
       );
       if (image != null) {
+        final bytes = await image.readAsBytes();
         setState(() {
-          _cardInfo = _cardInfo.copyWith(signaturePath: image.path);
+          _cardInfo = _cardInfo.copyWith(signatureBytes: bytes);
         });
       }
     } catch (e) {
@@ -91,8 +90,9 @@ class _CardEditorPageState extends State<CardEditorPage> {
         imageQuality: 85,
       );
       if (image != null) {
+        final bytes = await image.readAsBytes();
         setState(() {
-          _cardInfo = _cardInfo.copyWith(authoritySignaturePath: image.path);
+          _cardInfo = _cardInfo.copyWith(authoritySignatureBytes: bytes);
         });
       }
     } catch (e) {
@@ -121,22 +121,6 @@ class _CardEditorPageState extends State<CardEditorPage> {
       return byteData.buffer.asUint8List();
     } catch (e) {
       debugPrint("Error rendering card image: $e");
-      return null;
-    }
-  }
-
-  /// Renders the widget behind [key] to a temporary PNG file. Returns its path.
-  Future<String?> _captureKeyAsImage(GlobalKey key) async {
-    final Uint8List? pngBytes = await _capturePngBytes(key);
-    if (pngBytes == null) return null;
-    try {
-      final Directory tempDir = await getTemporaryDirectory();
-      final String path =
-          '${tempDir.path}/id_card_${key.hashCode}_${DateTime.now().millisecondsSinceEpoch}.png';
-      await File(path).writeAsBytes(pngBytes);
-      return path;
-    } catch (e) {
-      debugPrint("Error writing card image: $e");
       return null;
     }
   }
@@ -348,45 +332,35 @@ class _CardEditorPageState extends State<CardEditorPage> {
     return doc.save();
   }
 
-  /// Saves [bytes] into the device's public Downloads folder. On Android 10+
-  /// this goes through MediaStore; on older versions it copies into the public
-  /// Downloads directory. Falls back to a share sheet if a direct write fails.
+  /// Saves [bytes] to the device's Downloads folder (mobile/desktop, via
+  /// MediaStore on Android 10+) or triggers a browser download (web).
   Future<void> _deliverFile(Uint8List bytes, String filename) async {
-    // The Downloads copy works from a real file, so stage it in temp first.
-    String tempPath;
-    try {
-      final Directory tempDir = await getTemporaryDirectory();
-      tempPath = '${tempDir.path}/$filename';
-      await File(tempPath).writeAsBytes(bytes);
-    } catch (e) {
-      debugPrint('Error staging file: $e');
-      _exportFailed();
-      return;
-    }
-
-    bool savedToDownloads = false;
-    try {
-      final bool? ok = await copyFileIntoDownloadFolder(tempPath, filename);
-      savedToDownloads = ok ?? false;
-    } catch (e) {
-      debugPrint('Downloads copy failed: $e');
-    }
-
+    final SaveResult result = await FileExport.saveToDownloads(bytes, filename);
     if (!mounted) return;
 
-    if (savedToDownloads) {
+    if (result.isWeb) {
+      _showSavedDialog(
+        title: 'DOWNLOADED',
+        body: '$filename was downloaded by your browser. Check your Downloads.',
+        bytes: bytes,
+        filename: filename,
+        canOpenDownloads: false,
+      );
+    } else if (result.ok) {
       _showSavedDialog(
         title: 'SAVED TO DOWNLOADS',
         body: '$filename was saved to your device\'s Downloads folder.',
-        sharePath: tempPath,
-        canOpenDownloads: true,
+        bytes: bytes,
+        filename: filename,
+        canOpenDownloads: result.canOpenDownloads,
       );
     } else {
       _showSavedDialog(
         title: 'FILE READY',
         body: 'Could not write directly to Downloads on this device. '
             'Tap "Save / Share" to store $filename in Downloads, Files or Drive.',
-        sharePath: tempPath,
+        bytes: bytes,
+        filename: filename,
         canOpenDownloads: false,
       );
     }
@@ -395,9 +369,11 @@ class _CardEditorPageState extends State<CardEditorPage> {
   void _showSavedDialog({
     required String title,
     required String body,
-    required String sharePath,
+    required Uint8List bytes,
+    required String filename,
     required bool canOpenDownloads,
   }) {
+    final String mime = filename.endsWith('.pdf') ? 'application/pdf' : 'image/png';
     showDialog(
       context: context,
       builder: (context) {
@@ -422,25 +398,22 @@ class _CardEditorPageState extends State<CardEditorPage> {
             ),
             if (canOpenDownloads)
               TextButton(
-                onPressed: () async {
+                onPressed: () {
                   Navigator.pop(context);
-                  try {
-                    await openDownloadFolder();
-                  } catch (e) {
-                    debugPrint('Could not open Downloads: $e');
-                  }
+                  FileExport.openDownloads();
                 },
                 child: const Text('Open Downloads', style: TextStyle(color: AppTheme.secondary)),
               ),
-            if (!kIsWeb)
-              ElevatedButton.icon(
-                onPressed: () {
-                  Navigator.pop(context);
-                  Share.shareXFiles([XFile(sharePath)]);
-                },
-                icon: const Icon(Icons.ios_share, size: 16),
-                label: const Text('Save / Share'),
-              ),
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.pop(context);
+                Share.shareXFiles(
+                  [XFile.fromData(bytes, name: filename, mimeType: mime)],
+                );
+              },
+              icon: const Icon(Icons.ios_share, size: 16),
+              label: const Text('Save / Share'),
+            ),
           ],
         );
       },
@@ -456,12 +429,12 @@ class _CardEditorPageState extends State<CardEditorPage> {
 
   Future<void> _executeShare(GlobalKey key) async {
     setState(() => _isSaving = true);
-    final path = await _captureKeyAsImage(key);
+    final Uint8List? bytes = await _capturePngBytes(key);
     setState(() => _isSaving = false);
 
-    if (path != null && mounted) {
+    if (bytes != null && mounted) {
       await Share.shareXFiles(
-        [XFile(path)],
+        [XFile.fromData(bytes, name: '${_safeName()}.png', mimeType: 'image/png')],
         text: 'Generated ID Card for ${_cardInfo.englishName.isNotEmpty ? _cardInfo.englishName : "Customer"}. Created with Card Scanner Pro.',
       );
     } else if (mounted) {

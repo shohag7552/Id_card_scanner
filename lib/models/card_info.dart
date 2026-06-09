@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 class CardInfo {
   final String banglaName;
   final String englishName;
@@ -10,9 +12,11 @@ class CardInfo {
   final String bloodGroup;
   final String birthPlace;
   final String issueDate;
-  final String? avatarPath;
-  final String? signaturePath;
-  final String? authoritySignaturePath;
+  // Images are stored as in-memory bytes so they render identically on mobile
+  // and web (Image.memory). Not serialized to JSON.
+  final Uint8List? avatarBytes;
+  final Uint8List? signatureBytes;
+  final Uint8List? authoritySignatureBytes;
 
   const CardInfo({
     this.banglaName = '',
@@ -26,9 +30,9 @@ class CardInfo {
     this.bloodGroup = '',
     this.birthPlace = '',
     this.issueDate = '',
-    this.avatarPath,
-    this.signaturePath,
-    this.authoritySignaturePath,
+    this.avatarBytes,
+    this.signatureBytes,
+    this.authoritySignatureBytes,
   });
 
   CardInfo copyWith({
@@ -43,9 +47,9 @@ class CardInfo {
     String? bloodGroup,
     String? birthPlace,
     String? issueDate,
-    String? avatarPath,
-    String? signaturePath,
-    String? authoritySignaturePath,
+    Uint8List? avatarBytes,
+    Uint8List? signatureBytes,
+    Uint8List? authoritySignatureBytes,
   }) {
     return CardInfo(
       banglaName: banglaName ?? this.banglaName,
@@ -59,9 +63,9 @@ class CardInfo {
       bloodGroup: bloodGroup ?? this.bloodGroup,
       birthPlace: birthPlace ?? this.birthPlace,
       issueDate: issueDate ?? this.issueDate,
-      avatarPath: avatarPath ?? this.avatarPath,
-      signaturePath: signaturePath ?? this.signaturePath,
-      authoritySignaturePath: authoritySignaturePath ?? this.authoritySignaturePath,
+      avatarBytes: avatarBytes ?? this.avatarBytes,
+      signatureBytes: signatureBytes ?? this.signatureBytes,
+      authoritySignatureBytes: authoritySignatureBytes ?? this.authoritySignatureBytes,
     );
   }
 
@@ -77,10 +81,11 @@ class CardInfo {
       bloodGroup.isEmpty &&
       birthPlace.isEmpty &&
       issueDate.isEmpty &&
-      avatarPath == null &&
-      signaturePath == null &&
-      authoritySignaturePath == null;
+      avatarBytes == null &&
+      signatureBytes == null &&
+      authoritySignatureBytes == null;
 
+  /// Text-only JSON (images are excluded — they are runtime byte buffers).
   Map<String, dynamic> toJson() {
     return {
       'banglaName': banglaName,
@@ -94,9 +99,6 @@ class CardInfo {
       'bloodGroup': bloodGroup,
       'birthPlace': birthPlace,
       'issueDate': issueDate,
-      'avatarPath': avatarPath,
-      'signaturePath': signaturePath,
-      'authoritySignaturePath': authoritySignaturePath,
     };
   }
 
@@ -113,9 +115,6 @@ class CardInfo {
       bloodGroup: json['bloodGroup'] ?? '',
       birthPlace: json['birthPlace'] ?? '',
       issueDate: json['issueDate'] ?? '',
-      avatarPath: json['avatarPath'],
-      signaturePath: json['signaturePath'],
-      authoritySignaturePath: json['authoritySignaturePath'],
     );
   }
 }
