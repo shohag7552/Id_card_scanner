@@ -8,6 +8,7 @@ import '../theme/app_theme.dart';
 import 'card_editor_page.dart';
 import '../widgets/card_template_widgets.dart';
 import '../widgets/responsive_center.dart';
+import '../widgets/adaptive_sheet.dart';
 
 class ScanPage extends StatefulWidget {
   const ScanPage({super.key});
@@ -242,12 +243,8 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
   }
 
   void _showImageSourcePicker({required bool isFront}) {
-    showModalBottomSheet(
+    showAdaptiveSheet(
       context: context,
-      backgroundColor: AppTheme.surfaceBg,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
       builder: (context) {
         return SafeArea(
           child: Column(

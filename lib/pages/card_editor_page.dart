@@ -11,6 +11,7 @@ import '../services/file_export.dart';
 import '../theme/app_theme.dart';
 import '../widgets/card_template_widgets.dart';
 import '../widgets/responsive_center.dart';
+import '../widgets/adaptive_sheet.dart';
 
 class CardEditorPage extends StatefulWidget {
   final CardInfo initialInfo;
@@ -128,12 +129,8 @@ class _CardEditorPageState extends State<CardEditorPage> {
 
   Future<void> _shareCard() async {
     if (_selectedTemplate == CardTemplateType.bangladeshNid) {
-      showModalBottomSheet(
+      showAdaptiveSheet(
         context: context,
-        backgroundColor: AppTheme.surfaceBg,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
         builder: (context) {
           return SafeArea(
             child: Column(
@@ -182,13 +179,9 @@ class _CardEditorPageState extends State<CardEditorPage> {
 
   void _downloadCard() {
     final isNid = _selectedTemplate == CardTemplateType.bangladeshNid;
-    showModalBottomSheet(
+    showAdaptiveSheet(
       context: context,
-      backgroundColor: AppTheme.surfaceBg,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
       builder: (context) {
         return SafeArea(
           child: SingleChildScrollView(
@@ -492,8 +485,21 @@ class _CardEditorPageState extends State<CardEditorPage> {
   Widget _buildRepaintBoundaryPreview() {
     final isNid = _selectedTemplate == CardTemplateType.bangladeshNid;
 
-    return Center(
-      child: Container(
+    // Scale the fixed-size card design to the available width so it looks right
+    // on every screen: it scales DOWN to avoid overflow on narrow phones and
+    // UP (capped) to fill the space on web / big screens. The actual exports
+    // read the inner RepaintBoundaries via toImage(), which ignores this
+    // ancestor scale, so downloaded/shared files stay at full native resolution.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final targetWidth = constraints.maxWidth.clamp(0.0, 480.0);
+        return Center(
+          child: SizedBox(
+            width: targetWidth,
+            child: FittedBox(
+              fit: BoxFit.contain,
+              alignment: Alignment.topCenter,
+              child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: AppTheme.surfaceBg,
@@ -534,7 +540,11 @@ class _CardEditorPageState extends State<CardEditorPage> {
                   ),
           ),
         ),
-      ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 

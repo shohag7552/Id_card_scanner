@@ -820,11 +820,11 @@ class CardTemplateWidget extends StatelessWidget {
     );
   }
 
-  // 5. Bangladesh National ID Card Template (Horizontal: 340 x 215)
+  // 5. Bangladesh National ID Card Template (Horizontal: 350 x 215)
   Widget _buildBangladeshNidTemplate(BuildContext context) {
     return Container(
       width: 350,
-      height: 180,
+      height: 190,
       decoration: BoxDecoration(
         color: const Color(0xFFFCFDFD),
         borderRadius: BorderRadius.circular(12),
@@ -929,14 +929,15 @@ class CardTemplateWidget extends StatelessWidget {
                 const SizedBox(height: 8),
                 // Main Content Row
                 Expanded(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 8, right: 8, bottom: 6),
+                    child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const SizedBox(width: 5),
                       // Left Side: Profile Picture and Signature
                       Column(
                         children: [
-                          _buildAvatar(size: 60, height: 70, borderRadius: 2, isCircular: false),
+                          _buildAvatar(size: 64, height: 76, borderRadius: 2, isCircular: false),
                           const SizedBox(height: 5),
                           // Signature image or text fallback
                           Builder(
@@ -1033,6 +1034,7 @@ class CardTemplateWidget extends StatelessWidget {
                       ),
                     ],
                   ),
+                  ),
                 ),
               ],
             ),
@@ -1042,11 +1044,11 @@ class CardTemplateWidget extends StatelessWidget {
     );
   }
 
-  // 6. Bangladesh National ID Card Template - Back Side (Horizontal: 340 x 215)
+  // 6. Bangladesh National ID Card Template - Back Side (Horizontal: 350 x 215)
   Widget _buildBangladeshNidBackTemplate(BuildContext context) {
     return Container(
       width: 350,
-      height: 180,
+      height: 190,
       decoration: BoxDecoration(
         color: const Color(0xFFFCFDFD),
         borderRadius: BorderRadius.circular(12),
