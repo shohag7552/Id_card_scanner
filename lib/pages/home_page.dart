@@ -5,6 +5,7 @@ import '../widgets/card_template_widgets.dart';
 import '../widgets/responsive_center.dart';
 import 'scan_page.dart';
 import 'card_editor_page.dart';
+import 'batch_scan_page.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -85,6 +86,8 @@ class HomePage extends StatelessWidget {
 
                 // Hero Scanner Action Card
                 _buildHeroScannerCard(context),
+                const SizedBox(height: 14),
+                _buildBatchScanButton(context),
                 const SizedBox(height: 36),
 
                 // Template Gallery Section
@@ -207,6 +210,63 @@ class HomePage extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildBatchScanButton(BuildContext context) {
+    return Material(
+      color: AppTheme.surfaceBg,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const BatchScanPage()),
+          );
+        },
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppTheme.borderCol),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppTheme.secondary.withAlpha(25),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.dynamic_feed, color: AppTheme.secondary, size: 22),
+              ),
+              const SizedBox(width: 14),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Batch NID Scan',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Upload many NIDs, auto-generate & download as ZIP.',
+                      style: TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.arrow_forward_ios, color: AppTheme.textSecondary, size: 14),
+            ],
+          ),
+        ),
       ),
     );
   }
