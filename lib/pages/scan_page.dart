@@ -7,6 +7,7 @@ import '../services/face_cropper.dart';
 import '../theme/app_theme.dart';
 import 'card_editor_page.dart';
 import '../widgets/card_template_widgets.dart';
+import '../widgets/responsive_center.dart';
 
 class ScanPage extends StatefulWidget {
   const ScanPage({super.key});
@@ -208,7 +209,8 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(20.0),
-          child: Column(
+          child: ResponsiveCenter(
+            child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
@@ -232,6 +234,7 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
                 _buildSimulationOptions(),
               ],
             ],
+            ),
           ),
         ),
       ),

@@ -10,6 +10,7 @@ import '../models/card_info.dart';
 import '../services/file_export.dart';
 import '../theme/app_theme.dart';
 import '../widgets/card_template_widgets.dart';
+import '../widgets/responsive_center.dart';
 
 class CardEditorPage extends StatefulWidget {
   final CardInfo initialInfo;
@@ -460,12 +461,13 @@ class _CardEditorPageState extends State<CardEditorPage> {
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 16.0),
-          child: Column(
+          child: ResponsiveCenter(
+            child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               _buildRepaintBoundaryPreview(),
               const SizedBox(height: 12),
-              
+
               const Text(
                 'Hold and adjust fields using the form below',
                 style: TextStyle(color: AppTheme.textSecondary, fontSize: 11),
@@ -480,6 +482,7 @@ class _CardEditorPageState extends State<CardEditorPage> {
 
               _buildExportButtons(),
             ],
+            ),
           ),
         ),
       ),

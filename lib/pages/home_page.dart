@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/card_info.dart';
 import '../theme/app_theme.dart';
 import '../widgets/card_template_widgets.dart';
+import '../widgets/responsive_center.dart';
 import 'scan_page.dart';
 import 'card_editor_page.dart';
 
@@ -11,6 +12,23 @@ class HomePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        title: Column(
+          children: [
+            const Text('Card Scanner Pro'),
+            Text(
+          'Scan, Edit & Create ID Cards with AI',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: AppTheme.textSecondary,
+                letterSpacing: 1.0,
+              ),
+        ),
+          ],
+        ),
+        centerTitle: true,
+      ),
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
@@ -22,7 +40,9 @@ class HomePage extends StatelessWidget {
         child: SafeArea(
           child: SingleChildScrollView(
             padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 24.0),
-            child: Column(
+            child: ResponsiveCenter(
+              maxWidth: 720,
+              child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // Premium Top Header
@@ -90,6 +110,7 @@ class HomePage extends StatelessWidget {
                 // Quick Tips Section
                 _buildTipsSection(context),
               ],
+              ),
             ),
           ),
         ),
@@ -229,17 +250,21 @@ class HomePage extends StatelessWidget {
       ),
     ];
 
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        crossAxisSpacing: 14,
-        mainAxisSpacing: 14,
-        childAspectRatio: 0.85,
-      ),
-      itemCount: templates.length,
-      itemBuilder: (context, index) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Show more columns as the viewport widens (web / desktop / tablet).
+        final crossAxisCount = constraints.maxWidth >= 560 ? 3 : 2;
+        return GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: crossAxisCount,
+            crossAxisSpacing: 14,
+            mainAxisSpacing: 14,
+            childAspectRatio: 0.85,
+          ),
+          itemCount: templates.length,
+          itemBuilder: (context, index) {
         final t = templates[index];
         return InkWell(
           onTap: () {
@@ -310,6 +335,8 @@ class HomePage extends StatelessWidget {
               ],
             ),
           ),
+        );
+          },
         );
       },
     );
