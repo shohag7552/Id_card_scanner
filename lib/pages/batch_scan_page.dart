@@ -15,6 +15,7 @@ import '../theme/app_theme.dart';
 import '../widgets/adaptive_sheet.dart';
 import '../widgets/card_template_widgets.dart';
 import '../widgets/responsive_center.dart';
+import '../widgets/model_selector.dart';
 
 /// Which side(s) of a card to export for a single-item download.
 enum _Side {
@@ -51,6 +52,9 @@ class _BatchScanPageState extends State<BatchScanPage> {
 
   bool _processing = false;
   bool _cancelled = false;
+
+  /// Gemini model used for the whole batch (shared with the single-scan page).
+  String _selectedModelId = GeminiNidService.selectedModelId;
 
   /// The single card currently mounted in the hidden render host. Only one card
   /// is ever rendered at a time, so memory stays flat regardless of batch size.
@@ -209,6 +213,7 @@ class _BatchScanPageState extends State<BatchScanPage> {
     final result = await GeminiNidService.scanNid(
       frontBytes: item.frontBytes,
       backBytes: item.backBytes,
+      modelId: _selectedModelId,
     );
     item.info = result.info;
     item.error = result.error;
@@ -566,6 +571,16 @@ class _BatchScanPageState extends State<BatchScanPage> {
                           if (_pairs.isNotEmpty) ...[
                             const SizedBox(height: 20),
                             _buildPairReview(),
+                            const SizedBox(height: 16),
+                            ModelSelector(
+                              selectedId: _selectedModelId,
+                              onChanged: (id) {
+                                setState(() {
+                                  _selectedModelId = id;
+                                  GeminiNidService.selectedModelId = id;
+                                });
+                              },
+                            ),
                             const SizedBox(height: 16),
                             _buildStartButton(),
                           ],

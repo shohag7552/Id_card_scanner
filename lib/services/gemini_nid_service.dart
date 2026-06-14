@@ -23,10 +23,53 @@ class NidScanResult {
 /// the model returns structured JSON matching [_nidSchema], which maps 1:1 to
 /// [CardInfo]. When no API key is configured (e.g. on desktop/web before setup),
 /// it falls back to a simulated result so the app still runs.
+/// A user-selectable Gemini model: the API [id] plus a friendly [label] and
+/// [description] shown in the model picker.
+class GeminiModelOption {
+  final String id;
+  final String label;
+  final String description;
+
+  const GeminiModelOption({
+    required this.id,
+    required this.label,
+    required this.description,
+  });
+}
+
 class GeminiNidService {
-  /// Models tried in order. If the primary is overloaded (HTTP 500/503), the
-  /// scan automatically falls back to the next one.
-  static const List<String> _models = ['gemini-2.5-flash', 'gemini-2.5-flash-lite'];
+  /// Curated, user-selectable models for NID scanning. Kept short and labelled
+  /// on purpose — exposing every raw model id would confuse end users and
+  /// includes models that can't do this vision task. All three are stable
+  /// (no `-preview`), so Google won't retire them out from under the app.
+  static const List<GeminiModelOption> availableModels = [
+    GeminiModelOption(
+      id: 'gemini-2.5-flash',
+      label: 'Balanced',
+      description: 'Fast and accurate — recommended for everyday scanning.',
+    ),
+    GeminiModelOption(
+      id: 'gemini-2.5-pro',
+      label: 'High accuracy',
+      description: 'Best for blurry or hard-to-read cards. Slower and costlier.',
+    ),
+    GeminiModelOption(
+      id: 'gemini-2.5-flash-lite',
+      label: 'Fast & cheap',
+      description: 'Quickest and cheapest. Best for clear, well-lit cards.',
+    ),
+  ];
+
+  /// Default model used when the user hasn't chosen one.
+  static const String defaultModelId = 'gemini-2.5-flash';
+
+  /// The model the user picked in the UI. Shared app-wide (scan + batch) for the
+  /// session; defaults to [defaultModelId].
+  static String selectedModelId = defaultModelId;
+
+  /// If the chosen model is overloaded (HTTP 500/503), the scan automatically
+  /// falls back to this cheaper, usually-available model.
+  static const String _fallbackModelId = 'gemini-2.5-flash-lite';
 
   /// Retry attempts per model before moving on to the fallback.
   static const int _maxAttemptsPerModel = 3;
@@ -120,19 +163,32 @@ class GeminiNidService {
       'holderSignatureBox': {
         'type': 'ARRAY',
         'items': {'type': 'INTEGER'},
-        'description': 'TIGHT bounding box around ONLY the holder\'s handwritten '
-            'signature stroke in the FIRST (front) image, as [ymin, xmin, ymax, '
-            'xmax] normalized to 0-1000. EXCLUDE any printed label text, the name, '
-            'lines or borders — only the signature ink itself.',
+        'description': 'Bounding box around the holder\'s HANDWRITTEN signature in '
+            'the FIRST (front) image, as [ymin, xmin, ymax, xmax] normalized to '
+            '0-1000. It must be COMPLETE: cover EVERY ink stroke of the signature '
+            'end to end — the left-most to the right-most pixel and the top-most to '
+            'the bottom-most pixel, INCLUDING any tail, dot, dash or flourish that '
+            'is part of the signature — so nothing is clipped. But it must also be '
+            'EXCLUSIVE: do NOT include the printed name, the printed caption/label '
+            '(e.g. "স্বাক্ষর"), the holder photo, any printed/dotted underline, '
+            'box, border or other text. Box only the handwritten ink. The holder '
+            'signature is usually in the lower part of the front, near or below the '
+            'photo. If there is NO visible handwritten signature, omit this field.',
       },
       'authoritySignatureBox': {
         'type': 'ARRAY',
         'items': {'type': 'INTEGER'},
-        'description': 'TIGHT bounding box around ONLY the issuing authority\'s '
-            'handwritten signature/seal mark in the SECOND (back) image, as [ymin, '
-            'xmin, ymax, xmax] normalized to 0-1000. EXCLUDE the printed caption '
-            '"প্রদানকারী কর্তৃপক্ষের স্বাক্ষর", any dates, lines or other text — '
-            'only the signature ink itself.',
+        'description': 'Bounding box around the issuing authority\'s HANDWRITTEN '
+            'signature (and seal/stamp ink if it overlaps the signature) on the '
+            'SECOND (back) image, as [ymin, xmin, ymax, xmax] normalized to 0-1000. '
+            'It must be COMPLETE: cover EVERY stroke end to end (left-most to '
+            'right-most, top-most to bottom-most pixel, including tails and '
+            'flourishes) so nothing is clipped. But it must be EXCLUSIVE: do NOT '
+            'include the printed caption "প্রদানকারী কর্তৃপক্ষের স্বাক্ষর", any '
+            'printed name/designation, the date of issue, underlines, boxes, '
+            'borders or other printed text. Box only the handwritten ink / seal '
+            'mark. It sits just ABOVE or beside that printed caption, near the '
+            'bottom of the back side. If there is NO visible signature, omit this field.',
       },
     },
   };
@@ -163,15 +219,28 @@ normalized to 0-1000 (omit a box if that region is not visible):
   is the cropped portrait used as the avatar, so center it accurately on the face.
 - photoBox: the FULL holder photograph (head and shoulders) in the FIRST (front) image.
   This is a fallback for faceBox — still provide it.
-- holderSignatureBox: the holder's handwritten signature in the FIRST (front) image.
-- authoritySignatureBox: the issuing authority's signature in the SECOND (back) image.
+- holderSignatureBox: the holder's HANDWRITTEN signature in the FIRST (front) image,
+  usually in the lower area near or below the photo.
+- authoritySignatureBox: the issuing authority's HANDWRITTEN signature (plus seal/stamp
+  ink if it overlaps) on the SECOND (back) image, sitting just above or beside the
+  printed caption "প্রদানকারী কর্তৃপক্ষের স্বাক্ষর" near the bottom.
 
 The faceBox must frame the head like a passport photo: do not cut off the hair, chin or
 ears, and do not include the body or background beyond a small margin.
 
-Signature boxes must be TIGHT around ONLY the handwritten signature ink / seal mark.
-Do NOT include any printed caption text (e.g. "প্রদানকারী কর্তৃপক্ষের স্বাক্ষর"), names,
-dates, underlines, boxes or other surrounding text inside the signature boxes.
+Signature boxes are the most sensitive output — follow these rules exactly:
+1. COMPLETE: the box must contain the WHOLE signature. Find the left-most, right-most,
+   top-most and bottom-most ink pixel of the handwritten strokes (including any tail,
+   dot, dash, loop or flourish that belongs to the signature) and make the box reach all
+   four of them. Never clip or cut off any part of a stroke.
+2. EXCLUSIVE: the box must contain ONLY the handwritten ink. Do NOT include the printed
+   name, any printed caption/label (e.g. "স্বাক্ষর", "প্রদানকারী কর্তৃপক্ষের স্বাক্ষর"),
+   the photo, the date, any printed or dotted underline, box, border or other text.
+3. If a printed caption sits right next to the signature, stop the box at the edge of the
+   ink — do not extend into the printed text.
+4. Trace the actual strokes; do NOT just box the whole printed signature field/line.
+5. If there is genuinely NO handwritten signature visible, omit that box entirely rather
+   than guessing a region.
 
 Rules:
 - Return an empty string "" for any text field that is not visible.
@@ -192,9 +261,13 @@ Rules:
   /// Returns the extracted [CardInfo] plus an [NidScanResult.error] message when
   /// something goes wrong, so the UI can tell the user exactly what happened
   /// instead of silently showing a blank form.
+  /// [modelId] selects which Gemini model runs the scan; defaults to whatever the
+  /// user picked ([selectedModelId]). If that model is overloaded, the scan falls
+  /// back to [_fallbackModelId] automatically.
   static Future<NidScanResult> scanNid({
     required Uint8List frontBytes,
     Uint8List? backBytes,
+    String? modelId,
   }) async {
     if (!isAvailable) {
       return NidScanResult(
@@ -238,12 +311,19 @@ Rules:
         'safetySettings': _safetySettings,
       });
 
+      // The chosen model first, then the cheap fallback if it's overloaded.
+      final chosen = modelId ?? selectedModelId;
+      final modelsToTry = <String>[
+        chosen,
+        if (chosen != _fallbackModelId) _fallbackModelId,
+      ];
+
       // Try each model, retrying transient 500/503 "overloaded" errors with
       // exponential backoff before falling back to the next model.
       Map<String, dynamic>? response;
       Object? lastError;
       outer:
-      for (final modelName in _models) {
+      for (final modelName in modelsToTry) {
         for (int attempt = 1; attempt <= _maxAttemptsPerModel; attempt++) {
           try {
             response = await _post(modelName, body);
@@ -401,8 +481,8 @@ Rules:
           'scan again.\n\n$msg';
     }
     if (lower.contains('not found') || lower.contains('404')) {
-      return 'Model "${_models.first}" was not found for this backend. '
-          'It may not be available yet on the Gemini Developer API.\n\n$msg';
+      return 'The selected model "$selectedModelId" was not found for this API '
+          'key. It may not be available on the Gemini Developer API.\n\n$msg';
     }
     if (lower.contains('socket') ||
         lower.contains('network') ||

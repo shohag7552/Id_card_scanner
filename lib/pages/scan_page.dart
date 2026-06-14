@@ -9,6 +9,7 @@ import 'card_editor_page.dart';
 import '../widgets/card_template_widgets.dart';
 import '../widgets/responsive_center.dart';
 import '../widgets/adaptive_sheet.dart';
+import '../widgets/model_selector.dart';
 
 class ScanPage extends StatefulWidget {
   const ScanPage({super.key});
@@ -26,6 +27,10 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
   Uint8List? _backBytes;
   bool _isScanning = false;
   bool _hasScanned = false;
+
+  /// Currently selected Gemini model id (kept in sync with the shared
+  /// [GeminiNidService.selectedModelId]).
+  String _selectedModelId = GeminiNidService.selectedModelId;
 
   CardInfo _scannedInfo = const CardInfo();
 
@@ -81,8 +86,17 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
     }
   }
 
-  /// Sends the front (and optional back) image to Gemini 2.5 Flash, then crops the
-  /// avatar / signatures on-device with ML Kit face detection.
+  /// Friendly label of the currently selected model (e.g. "Gemini 2.5 Flash").
+  String _selectedModelLabel() {
+    final m = GeminiNidService.availableModels.firstWhere(
+      (m) => m.id == _selectedModelId,
+      orElse: () => GeminiNidService.availableModels.first,
+    );
+    return m.id.replaceAll('gemini-', 'Gemini ').replaceAll('-', ' ');
+  }
+
+  /// Sends the front (and optional back) image to the selected Gemini model, then
+  /// crops the avatar / signatures on-device with ML Kit face detection.
   Future<void> _scanNow() async {
     if (_frontBytes == null) return;
 
@@ -94,6 +108,7 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
     final NidScanResult result = await GeminiNidService.scanNid(
       frontBytes: _frontBytes!,
       backBytes: _backBytes,
+      modelId: _selectedModelId,
     );
     CardInfo info = result.info;
 
@@ -130,8 +145,8 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
       _showScanError(result.error!);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('NID scanned with Gemini 2.5 Flash!'),
+        SnackBar(
+          content: Text('NID scanned with ${_selectedModelLabel()}!'),
           backgroundColor: AppTheme.secondary,
         ),
       );
@@ -220,6 +235,18 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
                   const SizedBox(width: 14),
                   _buildViewport(isFront: false),
                 ],
+              ),
+              const SizedBox(height: 16),
+
+              // Let the user pick which Gemini model does the extraction.
+              ModelSelector(
+                selectedId: _selectedModelId,
+                onChanged: (id) {
+                  setState(() {
+                    _selectedModelId = id;
+                    GeminiNidService.selectedModelId = id;
+                  });
+                },
               ),
               const SizedBox(height: 24),
 
@@ -452,7 +479,7 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
               shadowColor: Colors.transparent,
               padding: const EdgeInsets.symmetric(vertical: 16),
             ),
-            label: const Text('SCAN WITH GEMINI 2.5 FLASH'),
+            label: Text('SCAN WITH ${_selectedModelLabel().toUpperCase()}'),
           ),
         ),
       ],
