@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:firebase_ai/firebase_ai.dart';
-import 'package:firebase_core/firebase_core.dart';
+import 'package:http/http.dart' as http;
 import '../models/card_info.dart';
 import 'image_crop_util.dart';
 
@@ -17,13 +16,13 @@ class NidScanResult {
 }
 
 /// Extracts Bangladesh National ID (NID) details from front/back card photos
-/// using Gemini 2.5 Flash via Firebase AI (Gemini Developer API backend).
+/// using Gemini 2.5 Flash via the Gemini Developer (Generative Language) REST
+/// API, authenticated with an API key passed through --dart-define.
 ///
 /// Gemini reads Bangla script natively, so there is no regex/OCR post-processing:
 /// the model returns structured JSON matching [_nidSchema], which maps 1:1 to
-/// [CardInfo]. When Firebase is not configured (e.g. before `flutterfire
-/// configure`, or on desktop/web), it falls back to a simulated result so the
-/// app still runs.
+/// [CardInfo]. When no API key is configured (e.g. on desktop/web before setup),
+/// it falls back to a simulated result so the app still runs.
 class GeminiNidService {
   /// Models tried in order. If the primary is overloaded (HTTP 500/503), the
   /// scan automatically falls back to the next one.
@@ -32,88 +31,111 @@ class GeminiNidService {
   /// Retry attempts per model before moving on to the fallback.
   static const int _maxAttemptsPerModel = 3;
 
-  /// Relaxed safety thresholds so legitimate ID extraction isn't blocked.
-  static final List<SafetySetting> _safetySettings = [
-    SafetySetting(HarmCategory.harassment, HarmBlockThreshold.none, null),
-    SafetySetting(HarmCategory.hateSpeech, HarmBlockThreshold.none, null),
-    SafetySetting(HarmCategory.sexuallyExplicit, HarmBlockThreshold.none, null),
-    SafetySetting(HarmCategory.dangerousContent, HarmBlockThreshold.none, null),
+  /// API key for the Gemini Developer (Generative Language) API. Injected at
+  /// build/run time so it is never hardcoded or committed:
+  ///   flutter run --dart-define=GEMINI_API_KEY=xxxx
+  static const String _apiKey = String.fromEnvironment('GEMINI_API_KEY');
+
+  /// Base endpoint for the stable Gemini REST API. The model name and
+  /// `:generateContent` action are appended per request.
+  static const String _endpoint =
+      'https://generativelanguage.googleapis.com/v1beta/models';
+
+  /// Relaxed safety thresholds (REST `safetySettings`) so legitimate ID
+  /// extraction isn't blocked.
+  static const List<Map<String, String>> _safetySettings = [
+    {'category': 'HARM_CATEGORY_HARASSMENT', 'threshold': 'BLOCK_NONE'},
+    {'category': 'HARM_CATEGORY_HATE_SPEECH', 'threshold': 'BLOCK_NONE'},
+    {'category': 'HARM_CATEGORY_SEXUALLY_EXPLICIT', 'threshold': 'BLOCK_NONE'},
+    {'category': 'HARM_CATEGORY_DANGEROUS_CONTENT', 'threshold': 'BLOCK_NONE'},
   ];
 
-  /// JSON schema Gemini must return. Every field is optional so each side of the
-  /// card can contribute only the fields it actually shows.
-  static final Schema _nidSchema = Schema.object(
-    properties: {
-      'banglaName': Schema.string(
-        description: 'Full name in Bangla script (নাম), exactly as printed.',
-      ),
-      'englishName': Schema.string(
-        description: 'Full name in English, uppercase, exactly as printed (Name).',
-      ),
-      'banglaFatherName': Schema.string(
-        description: "Father's name in Bangla script (পিতা).",
-      ),
-      'banglaMotherName': Schema.string(
-        description: "Mother's name in Bangla script (মাতা).",
-      ),
-      'dateOfBirth': Schema.string(
-        description: 'Date of Birth as printed, e.g. "20 Dec 2006".',
-      ),
-      'idNumber': Schema.string(
-        description: 'NID / ID number digits only (10, 13 or 17 digits).',
-      ),
-      'address': Schema.string(
-        description: 'Full address in Bangla from the back side (ঠিকানা).',
-      ),
-      'bloodGroup': Schema.string(
-        description: 'Blood group, e.g. "O+", "A+" (রক্তের গ্রুপ).',
-      ),
-      'birthPlace': Schema.string(
-        description: 'Place of birth in Bangla (জন্মস্থান).',
-      ),
-      'issueDate': Schema.string(
-        description: 'The DATE OF ISSUE on the BACK side, labelled "প্রদানের তারিখ" '
+  /// JSON schema (OpenAPI subset) Gemini must return via `responseSchema`.
+  /// Every field is optional — no `required` list — so each side of the card
+  /// can contribute only the fields it actually shows.
+  static const Map<String, dynamic> _nidSchema = {
+    'type': 'OBJECT',
+    'properties': {
+      'banglaName': {
+        'type': 'STRING',
+        'description': 'Full name in Bangla script (নাম), exactly as printed.',
+      },
+      'englishName': {
+        'type': 'STRING',
+        'description': 'Full name in English, uppercase, exactly as printed (Name).',
+      },
+      'banglaFatherName': {
+        'type': 'STRING',
+        'description': "Father's name in Bangla script (পিতা).",
+      },
+      'banglaMotherName': {
+        'type': 'STRING',
+        'description': "Mother's name in Bangla script (মাতা).",
+      },
+      'dateOfBirth': {
+        'type': 'STRING',
+        'description': 'Date of Birth as printed, e.g. "20 Dec 2006".',
+      },
+      'idNumber': {
+        'type': 'STRING',
+        'description': 'NID / ID number digits only (10, 13 or 17 digits).',
+      },
+      'address': {
+        'type': 'STRING',
+        'description': 'Full address in Bangla from the back side (ঠিকানা).',
+      },
+      'bloodGroup': {
+        'type': 'STRING',
+        'description': 'Blood group, e.g. "O+", "A+" (রক্তের গ্রুপ).',
+      },
+      'birthPlace': {
+        'type': 'STRING',
+        'description': 'Place of birth in Bangla (জন্মস্থান).',
+      },
+      'issueDate': {
+        'type': 'STRING',
+        'description': 'The DATE OF ISSUE on the BACK side, labelled "প্রদানের তারিখ" '
             'or "Date of Issue" (usually near the authority signature). Return it '
             'EXACTLY as printed, keeping Bangla digits if shown in Bangla, e.g. '
             '"০৮/০৬/২০২৬". This is NOT the date of birth.',
-      ),
-      'photoBox': Schema.array(
-        items: Schema.integer(),
-        description: 'Bounding box of the holder PHOTO in the FIRST (front) image '
-            'as [ymin, xmin, ymax, xmax] normalized to 0-1000.',
-      ),
-      'holderSignatureBox': Schema.array(
-        items: Schema.integer(),
-        description: 'TIGHT bounding box around ONLY the holder\'s handwritten '
+      },
+      'faceBox': {
+        'type': 'ARRAY',
+        'items': {'type': 'INTEGER'},
+        'description': 'TIGHT bounding box around ONLY the holder\'s FACE/HEAD in '
+            'the FIRST (front) image — from the TOP of the hair down to the bottom '
+            'of the CHIN, and across BOTH ears — as [ymin, xmin, ymax, xmax] '
+            'normalized to 0-1000. Include the whole head with a small margin, but '
+            'EXCLUDE the shoulders/body, the card background, any printed text and '
+            'borders. This is the passport-style portrait used as the holder\'s '
+            'avatar, so it must be accurate and well-centered on the face.',
+      },
+      'photoBox': {
+        'type': 'ARRAY',
+        'items': {'type': 'INTEGER'},
+        'description': 'Fallback only: the FULL holder photograph region (head and '
+            'shoulders) in the FIRST (front) image as [ymin, xmin, ymax, xmax] '
+            'normalized to 0-1000. Used only when faceBox cannot be determined.',
+      },
+      'holderSignatureBox': {
+        'type': 'ARRAY',
+        'items': {'type': 'INTEGER'},
+        'description': 'TIGHT bounding box around ONLY the holder\'s handwritten '
             'signature stroke in the FIRST (front) image, as [ymin, xmin, ymax, '
             'xmax] normalized to 0-1000. EXCLUDE any printed label text, the name, '
             'lines or borders — only the signature ink itself.',
-      ),
-      'authoritySignatureBox': Schema.array(
-        items: Schema.integer(),
-        description: 'TIGHT bounding box around ONLY the issuing authority\'s '
+      },
+      'authoritySignatureBox': {
+        'type': 'ARRAY',
+        'items': {'type': 'INTEGER'},
+        'description': 'TIGHT bounding box around ONLY the issuing authority\'s '
             'handwritten signature/seal mark in the SECOND (back) image, as [ymin, '
             'xmin, ymax, xmax] normalized to 0-1000. EXCLUDE the printed caption '
             '"প্রদানকারী কর্তৃপক্ষের স্বাক্ষর", any dates, lines or other text — '
             'only the signature ink itself.',
-      ),
+      },
     },
-    optionalProperties: const [
-      'banglaName',
-      'englishName',
-      'banglaFatherName',
-      'banglaMotherName',
-      'dateOfBirth',
-      'idNumber',
-      'address',
-      'bloodGroup',
-      'birthPlace',
-      'issueDate',
-      'photoBox',
-      'holderSignatureBox',
-      'authoritySignatureBox',
-    ],
-  );
+  };
 
   static const String _prompt = '''
 You are an expert at reading Bangladesh National ID (NID / জাতীয় পরিচয়পত্র) cards.
@@ -135,9 +157,17 @@ Dates — read very carefully and do NOT mix them up:
 
 Also locate these regions and return their bounding boxes as [ymin, xmin, ymax, xmax]
 normalized to 0-1000 (omit a box if that region is not visible):
-- photoBox: the holder's photograph in the FIRST (front) image.
+- faceBox: a TIGHT box around ONLY the holder's FACE/HEAD in the FIRST (front) image —
+  from the top of the hair to the bottom of the chin and across both ears, with only a
+  small margin. EXCLUDE the shoulders/body, the card background, text and borders. This
+  is the cropped portrait used as the avatar, so center it accurately on the face.
+- photoBox: the FULL holder photograph (head and shoulders) in the FIRST (front) image.
+  This is a fallback for faceBox — still provide it.
 - holderSignatureBox: the holder's handwritten signature in the FIRST (front) image.
 - authoritySignatureBox: the issuing authority's signature in the SECOND (back) image.
+
+The faceBox must frame the head like a passport photo: do not cut off the hair, chin or
+ears, and do not include the body or background beyond a small margin.
 
 Signature boxes must be TIGHT around ONLY the handwritten signature ink / seal mark.
 Do NOT include any printed caption text (e.g. "প্রদানকারী কর্তৃপক্ষের স্বাক্ষর"), names,
@@ -148,11 +178,11 @@ Rules:
 - Do NOT translate, transliterate, guess, or invent any value. Only return what is actually printed.
 ''';
 
-  /// True when Firebase has been initialized and Gemini can be used.
-  static bool get isAvailable => Firebase.apps.isNotEmpty;
+  /// True when a Gemini API key has been provided via --dart-define.
+  static bool get isAvailable => _apiKey.isNotEmpty;
 
   /// Returns a simulated result with realistic Bangla sample data. Used for the
-  /// on-screen "Test Simulation" buttons and as a fallback when Firebase is not
+  /// on-screen "Test Simulation" buttons and as a fallback when no API key is
   /// configured (e.g. on desktop/web before setup).
   static NidScanResult simulated({required bool isFemale}) {
     return NidScanResult(info: _simulatedInfo(isFemale));
@@ -169,39 +199,54 @@ Rules:
     if (!isAvailable) {
       return NidScanResult(
         info: _simulatedInfo(false),
-        error: 'Firebase is not initialized — showing sample data. '
-            'Make sure Firebase.initializeApp() succeeded.',
+        error: 'No Gemini API key configured — showing sample data. '
+            'Run with --dart-define=GEMINI_API_KEY=your_key.',
       );
     }
 
     try {
-      final parts = <Part>[TextPart(_prompt)];
-      parts.add(InlineDataPart('image/jpeg', frontBytes));
+      // Build the REST request body once; it is identical across model retries.
+      final parts = <Map<String, dynamic>>[
+        {'text': _prompt},
+        {
+          'inline_data': {
+            'mime_type': 'image/jpeg',
+            'data': base64Encode(frontBytes),
+          }
+        },
+      ];
       if (backBytes != null) {
-        parts.add(InlineDataPart('image/jpeg', backBytes));
+        parts.add({
+          'inline_data': {
+            'mime_type': 'image/jpeg',
+            'data': base64Encode(backBytes),
+          }
+        });
       }
+
+      final body = jsonEncode({
+        'contents': [
+          {'parts': parts}
+        ],
+        'generationConfig': {
+          'responseMimeType': 'application/json',
+          'responseSchema': _nidSchema,
+        },
+        // Reading a government ID is legitimate, but the default filters can
+        // occasionally block PII extraction. Relax them so the scan isn't
+        // silently refused.
+        'safetySettings': _safetySettings,
+      });
 
       // Try each model, retrying transient 500/503 "overloaded" errors with
       // exponential backoff before falling back to the next model.
-      GenerateContentResponse? response;
+      Map<String, dynamic>? response;
       Object? lastError;
       outer:
       for (final modelName in _models) {
-        final model = FirebaseAI.googleAI().generativeModel(
-          model: modelName,
-          generationConfig: GenerationConfig(
-            responseMimeType: 'application/json',
-            responseSchema: _nidSchema,
-          ),
-          // Reading a government ID is legitimate, but the default filters can
-          // occasionally block PII extraction. Relax them so the scan isn't
-          // silently refused.
-          safetySettings: _safetySettings,
-        );
-
         for (int attempt = 1; attempt <= _maxAttemptsPerModel; attempt++) {
           try {
-            response = await model.generateContent([Content.multi(parts)]);
+            response = await _post(modelName, body);
             break outer;
           } catch (e) {
             lastError = e;
@@ -225,7 +270,7 @@ Rules:
       }
 
       // 1. Whole prompt rejected (e.g. safety) before any output.
-      final blockReason = response.promptFeedback?.blockReason;
+      final blockReason = response['promptFeedback']?['blockReason'];
       if (blockReason != null) {
         return NidScanResult(
           info: const CardInfo(),
@@ -234,10 +279,11 @@ Rules:
         );
       }
 
-      final text = response.text;
+      final candidates = response['candidates'] as List<dynamic>?;
+      final text = _textFromCandidates(candidates);
       if (text == null || text.trim().isEmpty) {
-        final finish = response.candidates.isNotEmpty
-            ? response.candidates.first.finishReason
+        final finish = (candidates != null && candidates.isNotEmpty)
+            ? candidates.first['finishReason']
             : null;
         return NidScanResult(
           info: const CardInfo(),
@@ -253,7 +299,12 @@ Rules:
       // Crop the photo / signatures locally from Gemini's bounding boxes. Pure
       // Dart cropping, so it works identically on mobile, web and Windows.
       final infoWithImages = info.copyWith(
-        avatarBytes: cropNormalizedBox(frontBytes, boxFromJson(map['photoBox']), padding: 0.12),
+        // Prefer Gemini's tight faceBox (AI face detection — works everywhere,
+        // including web). Fall back to the looser full-photo box if the model
+        // could not isolate the face.
+        avatarBytes:
+            cropNormalizedBox(frontBytes, boxFromJson(map['faceBox']), padding: 0.15) ??
+                cropNormalizedBox(frontBytes, boxFromJson(map['photoBox']), padding: 0.12),
         // No padding on signatures: the box is already meant to be tight, and
         // expanding it pulls in the surrounding printed caption text.
         signatureBytes: cropNormalizedBox(frontBytes, boxFromJson(map['holderSignatureBox']), padding: 0.0),
@@ -275,8 +326,45 @@ Rules:
     }
   }
 
+  /// POSTs [body] to the [modelName] `:generateContent` endpoint and returns the
+  /// decoded JSON. Throws on non-200 responses with a message that includes the
+  /// status code and the server's detail, so [_isRetryable] / [_friendlyError]
+  /// can classify it.
+  static Future<Map<String, dynamic>> _post(String modelName, String body) async {
+    final uri = Uri.parse('$_endpoint/$modelName:generateContent?key=$_apiKey');
+    final res = await http.post(
+      uri,
+      headers: const {'Content-Type': 'application/json'},
+      body: body,
+    );
+    if (res.statusCode == 200) {
+      return jsonDecode(res.body) as Map<String, dynamic>;
+    }
+    // Surface the server's error message — it usually carries a clear reason
+    // (PERMISSION_DENIED, invalid API key, model not found, overloaded, ...).
+    String detail = res.body;
+    try {
+      detail = (jsonDecode(res.body)['error']?['message'])?.toString() ?? res.body;
+    } catch (_) {}
+    throw Exception('HTTP ${res.statusCode}: $detail');
+  }
+
+  /// Concatenates the text from the first candidate's parts (the JSON payload
+  /// Gemini produced), or null if the response has no usable content.
+  static String? _textFromCandidates(List<dynamic>? candidates) {
+    if (candidates == null || candidates.isEmpty) return null;
+    final parts = candidates.first['content']?['parts'] as List<dynamic>?;
+    if (parts == null) return null;
+    final buffer = StringBuffer();
+    for (final part in parts) {
+      final t = part['text'];
+      if (t is String) buffer.write(t);
+    }
+    return buffer.toString();
+  }
+
   /// True for transient server errors that are worth retrying (overload /
-  /// temporary unavailability), per the message text the SDK surfaces.
+  /// temporary unavailability), per the message text the API surfaces.
   static bool _isRetryable(Object e) {
     final m = e.toString().toLowerCase();
     return m.contains('500') ||
@@ -288,17 +376,24 @@ Rules:
         m.contains('try again');
   }
 
-  /// Turns raw SDK exceptions into actionable hints for the most common setup
-  /// problems (API not enabled, billing, network, etc.).
+  /// Turns raw API errors into actionable hints for the most common setup
+  /// problems (bad/invalid key, API not enabled, billing, network, etc.).
   static String _friendlyError(Object e) {
     final msg = e.toString();
     final lower = msg.toLowerCase();
+    if (lower.contains('api_key_invalid') ||
+        lower.contains('api key not valid') ||
+        lower.contains('unauthenticated') ||
+        lower.contains('401')) {
+      return 'The Gemini API key is missing or invalid. Check the value passed '
+          'via --dart-define=GEMINI_API_KEY.\n\n$msg';
+    }
     if (lower.contains('permission_denied') ||
         lower.contains('service_disabled') ||
         lower.contains('has not been used') ||
         lower.contains('403')) {
-      return 'Permission denied. Open Firebase Console → Build → Firebase AI '
-          'Logic and enable the Gemini Developer API for this project, then retry.\n\n$msg';
+      return 'Permission denied. In Google Cloud Console for this API key, enable '
+          'the "Generative Language API" and make sure billing is active, then retry.\n\n$msg';
     }
     if (_isRetryable(e)) {
       return 'Gemini is temporarily overloaded (high demand). We retried '

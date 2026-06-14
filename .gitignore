@@ -1,3 +1,7 @@
+# Secrets — Gemini API key (never commit the real key; .env.example is safe)
+.env
+!.env.example
+
 # Miscellaneous
 *.class
 *.log

@@ -487,7 +487,7 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
           ),
           const SizedBox(height: 6),
           const Text(
-            'No Firebase configured or testing on desktop? Preview the NID layout flow with realistic Bangla sample data.',
+            'No API key configured or testing on desktop? Preview the NID layout flow with realistic Bangla sample data.',
             style: TextStyle(color: AppTheme.textSecondary, fontSize: 11, height: 1.3),
           ),
           const SizedBox(height: 16),

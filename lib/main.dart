@@ -1,24 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'firebase_options.dart';
 import 'theme/app_theme.dart';
 import 'pages/home_page.dart';
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-
-  // Initialize Firebase so Gemini (firebase_ai) is available for NID scanning.
-  // Wrapped in try/catch so the app still launches before `flutterfire configure`
-  // has generated the native config / firebase_options.dart. When Firebase is not
-  // ready, the scanner falls back to simulation mode.
-  try {
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
-  } catch (e) {
-    debugPrint('Firebase not configured yet — scanner runs in simulation mode: $e');
-  }
-
+void main() {
+  // Gemini NID scanning authenticates with an API key supplied at build time
+  // (--dart-define=GEMINI_API_KEY=...). When no key is present, the scanner
+  // falls back to simulation mode — see GeminiNidService.isAvailable.
   runApp(const CardScannerApp());
 }
 
