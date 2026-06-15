@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:card_scanner/constants/app_constants.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/card_info.dart';
@@ -77,7 +78,7 @@ class GeminiNidService {
   /// API key for the Gemini Developer (Generative Language) API. Injected at
   /// build/run time so it is never hardcoded or committed:
   ///   flutter run --dart-define=GEMINI_API_KEY=xxxx
-  static const String _apiKey = String.fromEnvironment('GEMINI_API_KEY');
+  static const String _apiKey = AppConstants.apiKey;
 
   /// Base endpoint for the stable Gemini REST API. The model name and
   /// `:generateContent` action are appended per request.

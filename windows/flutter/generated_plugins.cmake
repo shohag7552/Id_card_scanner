@@ -5,6 +5,7 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   downloadsfolder
   file_selector_windows
+  pasteboard
   share_plus
   url_launcher_windows
 )

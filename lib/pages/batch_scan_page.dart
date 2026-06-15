@@ -3,7 +3,9 @@ import 'package:archive/archive.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:pasteboard/pasteboard.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import '../models/batch_item.dart';
@@ -11,6 +13,7 @@ import '../models/card_info.dart';
 import '../models/nid_input_pair.dart';
 import '../services/file_export.dart';
 import '../services/gemini_nid_service.dart';
+import '../services/web_image_paste.dart';
 import '../theme/app_theme.dart';
 import '../widgets/adaptive_sheet.dart';
 import '../widgets/card_template_widgets.dart';
@@ -56,6 +59,11 @@ class _BatchScanPageState extends State<BatchScanPage> {
   /// Gemini model used for the whole batch (shared with the single-scan page).
   String _selectedModelId = GeminiNidService.selectedModelId;
 
+  /// Web only: the slot a user "armed" by tapping its paste icon. The next
+  /// Ctrl/⌘+V drops the pasted image here instead of creating a new pair. Null
+  /// when nothing is armed.
+  ({NidInputPair pair, bool isFront})? _webPasteTarget;
+
   /// The single card currently mounted in the hidden render host. Only one card
   /// is ever rendered at a time, so memory stays flat regardless of batch size.
   BatchItem? _renderTarget;
@@ -66,6 +74,9 @@ class _BatchScanPageState extends State<BatchScanPage> {
   @override
   void initState() {
     super.initState();
+    // On web, capture native Ctrl/⌘+V paste events (handles copied image files
+    // and screenshots across all browsers). No-op on other platforms.
+    WebImagePaste.start(_onWebPastedImages);
     // Warm the asset images the template paints (the gov seal + watermark) so
     // they're decoded before the first off-screen capture.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -73,6 +84,55 @@ class _BatchScanPageState extends State<BatchScanPage> {
       precacheImage(const AssetImage('assets/images/gov_seal.png'), context);
       precacheImage(const AssetImage('assets/images/sapla_logo.png'), context);
     });
+  }
+
+  @override
+  void dispose() {
+    WebImagePaste.stop();
+    super.dispose();
+  }
+
+  /// Handles images pasted together via the browser (web). Consecutive images
+  /// are paired front+back into new NID pairs: [img0,img1] → one pair (front,
+  /// back), [img2,img3] → the next, and so on. A lone trailing image becomes a
+  /// front-only pair.
+  void _onWebPastedImages(List<Uint8List> images) {
+    if (!mounted || _processing || images.isEmpty) return;
+
+    // If the user armed a specific slot (tapped its paste icon), drop the first
+    // pasted image there instead of creating a new pair.
+    final target = _webPasteTarget;
+    if (target != null) {
+      setState(() {
+        if (target.isFront) {
+          target.pair.front = images.first;
+        } else {
+          target.pair.back = images.first;
+        }
+        _webPasteTarget = null;
+      });
+      _toast('Pasted into the ${target.isFront ? 'FRONT' : 'BACK'} of the pair.');
+      return;
+    }
+
+    if (_items.isNotEmpty) return;
+    setState(() {
+      for (var i = 0; i < images.length; i += 2) {
+        _pairs.add(NidInputPair(
+          front: images[i],
+          back: i + 1 < images.length ? images[i + 1] : null,
+        ));
+      }
+    });
+    final pairsAdded = (images.length / 2).ceil();
+    if (images.length == 1) {
+      _toast('Pasted front image as pair ${_pairs.length}. '
+          'Copy front + back together to fill both sides.');
+    } else if (pairsAdded == 1) {
+      _toast('Pasted front + back as pair ${_pairs.length}.');
+    } else {
+      _toast('Pasted $pairsAdded pairs from ${images.length} images.');
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -139,7 +199,10 @@ class _BatchScanPageState extends State<BatchScanPage> {
 
   void _removeBack(NidInputPair pair) => setState(() => pair.back = null);
 
-  void _removePair(NidInputPair pair) => setState(() => _pairs.remove(pair));
+  void _removePair(NidInputPair pair) => setState(() {
+        _pairs.remove(pair);
+        if (_webPasteTarget?.pair == pair) _webPasteTarget = null;
+      });
 
   Future<List<Uint8List>?> _pickMulti() async {
     try {
@@ -172,6 +235,66 @@ class _BatchScanPageState extends State<BatchScanPage> {
   void _toast(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Clipboard paste — lets the user paste copied NID images (Ctrl/Cmd+V or the
+  // paste buttons) instead of only picking from gallery. Reads the image off the
+  // system clipboard; returns null (and never throws) when there is no image, so
+  // the existing pick flow is completely unaffected.
+  // ---------------------------------------------------------------------------
+
+  Future<Uint8List?> _clipboardImage() async {
+    try {
+      return await Pasteboard.image;
+    } catch (e) {
+      debugPrint('Clipboard image read error: $e');
+      return null;
+    }
+  }
+
+  /// Pastes a clipboard image as the FRONT of a brand-new pair.
+  Future<void> _pasteNewPair() async {
+    if (_processing) return;
+    final bytes = await _clipboardImage();
+    if (bytes == null) {
+      _toast('No image found in the clipboard. Copy an NID image first.');
+      return;
+    }
+    setState(() => _pairs.add(NidInputPair(front: bytes)));
+    _toast('Pasted front image as pair ${_pairs.length}.');
+  }
+
+  /// Pastes a clipboard image into the front or back slot of an existing [pair].
+  ///
+  /// First tries a direct clipboard read (works on every platform for copied
+  /// image *content* like screenshots). On web, a copied image *file* can't be
+  /// read from a button tap — only from a real paste event — so we "arm" this
+  /// slot and let the user press Ctrl/⌘+V to drop the image exactly here.
+  Future<void> _pasteInto(NidInputPair pair, {required bool isFront}) async {
+    if (_processing) return;
+
+    final bytes = await _clipboardImage();
+    if (bytes != null) {
+      setState(() {
+        if (isFront) {
+          pair.front = bytes;
+        } else {
+          pair.back = bytes;
+        }
+        _webPasteTarget = null;
+      });
+      return;
+    }
+
+    if (kIsWeb) {
+      setState(() => _webPasteTarget = (pair: pair, isFront: isFront));
+      _toast('Press Ctrl/⌘+V to paste your copied image into the '
+          '${isFront ? 'FRONT' : 'BACK'} of this pair.');
+      return;
+    }
+
+    _toast('No image found in the clipboard. Copy an NID image first.');
   }
 
   // ---------------------------------------------------------------------------
@@ -549,7 +672,23 @@ class _BatchScanPageState extends State<BatchScanPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('BATCH NID SCANNER')),
-      body: Stack(
+      // Ctrl/⌘+V pastes a copied NID image as a new pair while setting up the
+      // batch. On web the native paste-event handler (WebImagePaste) does this,
+      // so we only bind the shortcut on desktop to avoid double-firing.
+      body: CallbackShortcuts(
+        bindings: kIsWeb
+            ? const {}
+            : {
+                const SingleActivator(LogicalKeyboardKey.keyV, control: true): () {
+                  if (_items.isEmpty) _pasteNewPair();
+                },
+                const SingleActivator(LogicalKeyboardKey.keyV, meta: true): () {
+                  if (_items.isEmpty) _pasteNewPair();
+                },
+              },
+        child: Focus(
+          autofocus: true,
+          child: Stack(
         children: [
           // Hidden render host: painted (so toImage works) but fully covered by
           // the opaque content layer above, so the user never sees it.
@@ -599,7 +738,9 @@ class _BatchScanPageState extends State<BatchScanPage> {
             ),
           ),
         ],
-      ),
+          ), // Stack
+        ), // Focus
+      ), // CallbackShortcuts
     );
   }
 
@@ -695,6 +836,31 @@ class _BatchScanPageState extends State<BatchScanPage> {
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _processing ? null : _pasteNewPair,
+              icon: const Icon(Icons.content_paste, size: 16),
+              label: const Text(
+                'PASTE IMAGE (adds a new pair)',
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+              ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppTheme.secondary,
+                side: const BorderSide(color: AppTheme.borderCol),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+            ),
+          ),
+          const Padding(
+            padding: EdgeInsets.only(top: 6),
+            child: Text(
+              'Tip (web): select the front AND back image together, copy, then '
+              'press Ctrl/⌘+V — they\'re added as one pair (front first).',
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 10),
+            ),
           ),
         ],
       ),
@@ -867,7 +1033,9 @@ class _BatchScanPageState extends State<BatchScanPage> {
                 child: _imageSlot(
                   label: 'FRONT',
                   bytes: pair.front,
+                  armed: _webPasteTarget?.pair == pair && _webPasteTarget?.isFront == true,
                   onChange: _processing ? null : () => _changeImage(pair, isFront: true),
+                  onPaste: _processing ? null : () => _pasteInto(pair, isFront: true),
                 ),
               ),
               const SizedBox(width: 12),
@@ -875,7 +1043,9 @@ class _BatchScanPageState extends State<BatchScanPage> {
                 child: _imageSlot(
                   label: 'BACK',
                   bytes: pair.back,
+                  armed: _webPasteTarget?.pair == pair && _webPasteTarget?.isFront == false,
                   onChange: _processing ? null : () => _changeImage(pair, isFront: false),
+                  onPaste: _processing ? null : () => _pasteInto(pair, isFront: false),
                   onRemove: pair.back != null && !_processing ? () => _removeBack(pair) : null,
                 ),
               ),
@@ -890,6 +1060,8 @@ class _BatchScanPageState extends State<BatchScanPage> {
     required String label,
     required Uint8List? bytes,
     required VoidCallback? onChange,
+    bool armed = false,
+    VoidCallback? onPaste,
     VoidCallback? onRemove,
   }) {
     final hasImage = bytes != null;
@@ -914,7 +1086,10 @@ class _BatchScanPageState extends State<BatchScanPage> {
                   child: Container(
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: AppTheme.borderCol),
+                      border: Border.all(
+                        color: armed ? AppTheme.secondary : AppTheme.borderCol,
+                        width: armed ? 2 : 1,
+                      ),
                     ),
                     clipBehavior: Clip.antiAlias,
                     child: Stack(
@@ -934,9 +1109,28 @@ class _BatchScanPageState extends State<BatchScanPage> {
               : InkWell(
                   onTap: onChange,
                   borderRadius: BorderRadius.circular(10),
-                  child: DottedPlaceholder(label: 'Add $label side'),
+                  child: armed
+                      ? Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: AppTheme.secondary, width: 2),
+                          ),
+                          child: const Center(
+                            child: Icon(Icons.content_paste_go,
+                                color: AppTheme.secondary, size: 24),
+                          ),
+                        )
+                      : DottedPlaceholder(label: 'Add $label side'),
                 ),
         ),
+        if (armed)
+          const Padding(
+            padding: EdgeInsets.only(top: 4),
+            child: Text(
+              'Press Ctrl/⌘+V to paste here',
+              style: TextStyle(color: AppTheme.secondary, fontSize: 9, fontWeight: FontWeight.bold),
+            ),
+          ),
         const SizedBox(height: 6),
         Row(
           children: [
@@ -953,6 +1147,20 @@ class _BatchScanPageState extends State<BatchScanPage> {
                 ),
               ),
             ),
+            if (onPaste != null) ...[
+              const SizedBox(width: 6),
+              Tooltip(
+                message: 'Paste image from clipboard',
+                child: InkWell(
+                  onTap: onPaste,
+                  borderRadius: BorderRadius.circular(6),
+                  child: const Padding(
+                    padding: EdgeInsets.all(6),
+                    child: Icon(Icons.content_paste, color: AppTheme.secondary, size: 16),
+                  ),
+                ),
+              ),
+            ],
             if (onRemove != null) ...[
               const SizedBox(width: 6),
               InkWell(
