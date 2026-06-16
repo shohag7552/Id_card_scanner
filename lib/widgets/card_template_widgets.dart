@@ -839,7 +839,7 @@ class CardTemplateWidget extends StatelessWidget {
   Widget _buildBangladeshNidTemplate(BuildContext context) {
     return Container(
       width: 350,
-      height: 223,
+      height: 200,
       decoration: BoxDecoration(
         color: const Color(0xFFFFFFFF),
         border: Border.all(color: _nidBorder, width: 1),
@@ -1070,7 +1070,7 @@ class CardTemplateWidget extends StatelessWidget {
   Widget _buildBangladeshNidBackTemplate(BuildContext context) {
     return Container(
       width: 350,
-      height: 223,
+      height: 200,
       decoration: BoxDecoration(
         color: const Color(0xFFFFFFFF),
         border: Border.all(color: _nidBorder, width: 1),
