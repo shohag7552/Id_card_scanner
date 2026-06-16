@@ -16,3 +16,5 @@ For help getting started with Flutter development, view the
 [online documentation](https://docs.flutter.dev/), which offers tutorials,
 samples, guidance on mobile development, and a full API reference.
 # Id_card_scanner
+
+flutter build web --dart-define=GEMINI_API_KEY=the_key_here
