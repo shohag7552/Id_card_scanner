@@ -6,13 +6,12 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:pasteboard/pasteboard.dart';
-import 'package:pdf/pdf.dart';
-import 'package:pdf/widgets.dart' as pw;
 import '../models/batch_item.dart';
 import '../models/card_info.dart';
 import '../models/nid_input_pair.dart';
 import '../services/file_export.dart';
 import '../services/gemini_nid_service.dart';
+import '../services/nid_pdf_builder.dart';
 import '../services/web_image_paste.dart';
 import '../theme/app_theme.dart';
 import '../widgets/adaptive_sheet.dart';
@@ -604,26 +603,15 @@ class _BatchScanPageState extends State<BatchScanPage> {
   }
 
   Future<void> _downloadItemPdf(BatchItem item, _Side side) async {
-    // For "both" the PDF gets one page per side (full-size each); single sides
-    // are a one-page document.
-    final List<Uint8List> pages;
-    if (side == _Side.both) {
-      pages = [
-        if (item.frontPng != null) item.frontPng!,
-        if (item.backPng != null) item.backPng!,
-      ];
-    } else {
-      final b = _pngForSide(item, side);
-      pages = b == null ? [] : [b];
-    }
-    if (pages.isEmpty) {
-      _toast('Nothing to export.');
-      return;
-    }
-
+    // Native, selectable/editable PDF (Bangla as crisp images) — front + back on
+    // ONE page for "both", or a single side otherwise.
     Uint8List? pdfBytes;
     try {
-      pdfBytes = await _buildPdf(pages);
+      pdfBytes = await NidPdfBuilder.build(
+        item.info,
+        front: side != _Side.back,
+        back: side != _Side.front,
+      );
     } catch (e) {
       debugPrint('Batch PDF build error: $e');
     }
@@ -632,22 +620,6 @@ class _BatchScanPageState extends State<BatchScanPage> {
       return;
     }
     await _deliver(pdfBytes, '${item.safeBaseName}_${side.suffix}.pdf');
-  }
-
-  /// Builds a PDF with each PNG in [pageImages] centered on its own A4 page.
-  Future<Uint8List> _buildPdf(List<Uint8List> pageImages) async {
-    final doc = pw.Document();
-    for (final imgBytes in pageImages) {
-      final image = pw.MemoryImage(imgBytes);
-      doc.addPage(
-        pw.Page(
-          pageFormat: PdfPageFormat.a4,
-          margin: const pw.EdgeInsets.all(24),
-          build: (context) => pw.Center(child: pw.Image(image, fit: pw.BoxFit.contain)),
-        ),
-      );
-    }
-    return doc.save();
   }
 
   Future<void> _deliver(Uint8List bytes, String filename) async {

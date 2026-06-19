@@ -828,7 +828,7 @@ class CardTemplateWidget extends StatelessWidget {
   // drop the .ttf into assets/fonts/ and register family 'Bangla Medium' in
   // pubspec.yaml; until then Bangla falls back to the system Bengali font.
   static const String _enFont = 'Arial';
-  static const String _bnFont = 'Bangla Medium';
+  static const String _bnFont = 'Nikosh';
 
   // Colours from the real card.
   static const Color _nidGreenDark = Color(0xFF1B5E20);

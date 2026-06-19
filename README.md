@@ -18,3 +18,5 @@ samples, guidance on mobile development, and a full API reference.
 # Id_card_scanner
 
 flutter build web --dart-define=GEMINI_API_KEY=the_key_here
+
+flutter run --dart-define-from-file=.env

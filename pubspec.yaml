@@ -72,7 +72,14 @@ flutter:
 
   assets:
     - assets/images/
+    - assets/fonts/
 
+  # Nikosh — official Bangladesh government Bangla (Bengali) font, used for all
+  # Bangla text on the NID. Flutter shapes its conjuncts/vowels correctly.
+  fonts:
+    - family: Nikosh
+      fonts:
+        - asset: assets/fonts/Nikosh.ttf
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

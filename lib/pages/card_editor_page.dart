@@ -8,6 +8,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import '../models/card_info.dart';
 import '../services/file_export.dart';
+import '../services/nid_pdf_builder.dart';
 import '../theme/app_theme.dart';
 import '../widgets/card_template_widgets.dart';
 import '../widgets/responsive_center.dart';
@@ -284,19 +285,27 @@ class _CardEditorPageState extends State<CardEditorPage> {
   /// Captures the given [keys] (one page each) and exports them as a PDF document.
   Future<void> _downloadPdf(List<GlobalKey> keys, String suffix) async {
     setState(() => _isSaving = true);
-    final List<Uint8List> pages = [];
-    for (final key in keys) {
-      final bytes = await _capturePngBytes(key);
-      if (bytes != null) pages.add(bytes);
-    }
 
     Uint8List? pdfBytes;
-    if (pages.isNotEmpty) {
-      try {
-        pdfBytes = await _buildPdf(pages);
-      } catch (e) {
-        debugPrint('PDF build error: $e');
+    try {
+      if (_selectedTemplate == CardTemplateType.bangladeshNid) {
+        // Native, selectable/editable PDF — front + back on one page.
+        pdfBytes = await NidPdfBuilder.build(
+          _cardInfo,
+          front: suffix != 'back',
+          back: suffix != 'front',
+        );
+      } else {
+        // Other templates: keep the rasterised image PDF.
+        final pages = <Uint8List>[];
+        for (final key in keys) {
+          final bytes = await _capturePngBytes(key);
+          if (bytes != null) pages.add(bytes);
+        }
+        if (pages.isNotEmpty) pdfBytes = await _buildPdf(pages);
       }
+    } catch (e) {
+      debugPrint('PDF build error: $e');
     }
     setState(() => _isSaving = false);
 
