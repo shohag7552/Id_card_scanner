@@ -836,10 +836,15 @@ class CardTemplateWidget extends StatelessWidget {
   static const Color _nidRed = Color(0xFFD32F2F);
   static const Color _nidBorder = Color(0xFF9AA4B2);
 
+  /// NID card size — single source of truth shared by the on-screen preview AND
+  /// the generated PDF ([NidPdfBuilder]) so the two always match exactly.
+  static const double nidCardWidth = 350;
+  static const double nidCardHeight = 200;
+
   Widget _buildBangladeshNidTemplate(BuildContext context) {
     return Container(
-      width: 350,
-      height: 200,
+      width: nidCardWidth,
+      height: nidCardHeight,
       decoration: BoxDecoration(
         color: const Color(0xFFFFFFFF),
         border: Border.all(color: _nidBorder, width: 1),
@@ -1066,11 +1071,11 @@ class CardTemplateWidget extends StatelessWidget {
     );
   }
 
-  // 6. Bangladesh National ID Card Template - Back Side (Horizontal: 350 x 215)
+  // 6. Bangladesh National ID Card Template - Back Side
   Widget _buildBangladeshNidBackTemplate(BuildContext context) {
     return Container(
-      width: 350,
-      height: 200,
+      width: nidCardWidth,
+      height: nidCardHeight,
       decoration: BoxDecoration(
         color: const Color(0xFFFFFFFF),
         border: Border.all(color: _nidBorder, width: 1),

@@ -6,6 +6,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 import '../models/card_info.dart';
+import '../widgets/card_template_widgets.dart' show CardTemplateWidget;
 
 /// Builds a *native* (selectable / editable) PDF of a Bangladesh NID — front and
 /// back on a SINGLE page — instead of rasterising the whole card to one image.
@@ -410,8 +411,9 @@ class NidPdfBuilder {
 
   static pw.Widget _cardFrame({required PdfColor border, required pw.Widget child}) {
     return pw.Container(
-      width: 350,
-      height: 223,
+      // Same size as the on-screen preview so the PDF matches exactly.
+      width: CardTemplateWidget.nidCardWidth,
+      height: CardTemplateWidget.nidCardHeight,
       decoration: pw.BoxDecoration(
         color: PdfColors.white,
         border: pw.Border.all(color: border, width: 1),
