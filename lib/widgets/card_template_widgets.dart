@@ -25,9 +25,9 @@ class CardTemplateWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (templateType == CardTemplateType.bangladeshNid && isBack) {
-      return _buildBangladeshNidBackTemplate(context);
+      return _scaledNid(context, _buildBangladeshNidBackTemplate(context));
     }
-    
+
     switch (templateType) {
       case CardTemplateType.corporate:
         return _buildCorporateTemplate(context);
@@ -38,9 +38,18 @@ class CardTemplateWidget extends StatelessWidget {
       case CardTemplateType.glassmorphic:
         return _buildGlassmorphicTemplate(context);
       case CardTemplateType.bangladeshNid:
-        return _buildBangladeshNidTemplate(context);
+        return _scaledNid(context, _buildBangladeshNidTemplate(context));
     }
   }
+
+  /// Applies [fontScale] to every text in the NID card (front/back) so the
+  /// preview uses the same standard font sizes the printed PDF will. Only wraps
+  /// the NID — other templates are unchanged.
+  Widget _scaledNid(BuildContext context, Widget card) => MediaQuery(
+        data: MediaQuery.of(context)
+            .copyWith(textScaler: TextScaler.linear(fontScale)),
+        child: card,
+      );
 
   // Helper widget to display Avatar (either from cropped file or a placeholder)
   Widget _buildAvatar({required double size, double borderRadius = 0, bool isCircular = true, double? height}) {
@@ -831,15 +840,30 @@ class CardTemplateWidget extends StatelessWidget {
   static const String _bnFont = 'Nikosh';
 
   // Colours from the real card.
-  static const Color _nidGreenDark = Color(0xFF1B5E20);
   static const Color _nidGreen = Color(0xFF1E7D32);
   static const Color _nidRed = Color(0xFFD32F2F);
   static const Color _nidBorder = Color(0xFF9AA4B2);
 
-  /// NID card size — single source of truth shared by the on-screen preview AND
-  /// the generated PDF ([NidPdfBuilder]) so the two always match exactly.
+  /// Physical NID size — standard CR80 / ISO/IEC 7810 ID-1 card. The PDF is
+  /// rendered at exactly these millimetres so a printed card is true-to-size.
+  static const double nidCardWidthMm = 85.60;
+  static const double nidCardHeightMm = 53.98;
+
+  /// On-screen / PDF *design* size in logical units. Width is fixed; height is
+  /// derived so the card always keeps the exact CR80 aspect ratio (≈ 1.586:1).
+  /// [NidPdfBuilder] scales this design box to [nidCardWidthMm]×[nidCardHeightMm]
+  /// on download, so the preview and the printed PDF stay identical.
   static const double nidCardWidth = 350;
-  static const double nidCardHeight = 200;
+  static const double nidCardHeight =
+      nidCardWidth * nidCardHeightMm / nidCardWidthMm;
+
+  /// The design box ([nidCardWidth]) is wider than the physical card in points,
+  /// so the PDF scales it down by (physical/design). To make the printed fonts
+  /// land on the *standard* point sizes (the blueprint values like 13, 10.5…),
+  /// every NID font is multiplied by this inverse factor first. Applied via a
+  /// textScaler on the preview and inside the PDF font helpers, so both match.
+  static const double fontScale =
+      nidCardWidth / (nidCardWidthMm * 72 / 25.4); // ≈ 1.4424
 
   Widget _buildBangladeshNidTemplate(BuildContext context) {
     return Container(
@@ -860,13 +884,16 @@ class CardTemplateWidget extends StatelessWidget {
         children: [
           // National emblem watermark (centred, faint)
           Center(
-            child: Opacity(
-              opacity: 0.22,
-              child: Image.asset(
-                'assets/images/sapla_logo.png',
-                width: 132,
-                height: 132,
-                fit: BoxFit.contain,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 50.0),
+              child: Opacity(
+                opacity: 0.3,
+                child: Image.asset(
+                  'assets/images/sapla_logo.png',
+                  width: 125,
+                  height: 125,
+                  fit: BoxFit.contain,
+                ),
               ),
             ),
           ),
@@ -878,14 +905,14 @@ class CardTemplateWidget extends StatelessWidget {
               children: [
                 // Top Header Row
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
+                  padding: const EdgeInsets.fromLTRB(10, 8, 14, 2),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
                       Image.asset(
                         'assets/images/gov_seal.png',
-                        width: 30,
-                        height: 30,
+                        width: 35,
+                        height: 35,
                         fit: BoxFit.contain,
                       ),
                       const SizedBox(width: 6),
@@ -896,9 +923,9 @@ class CardTemplateWidget extends StatelessWidget {
                             Text(
                               'গণপ্রজাতন্ত্রী বাংলাদেশ সরকার',
                               style: TextStyle(
-                                color: _nidGreenDark,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13,
+                                color: Colors.black,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 12,
                                 fontFamily: _bnFont,
                               ),
                             ),
@@ -907,12 +934,13 @@ class CardTemplateWidget extends StatelessWidget {
                               style: TextStyle(
                                 color: _nidGreen,
                                 fontWeight: FontWeight.w600,
-                                fontSize: 8,
+                                fontSize: 7,
                                 fontFamily: _enFont,
                               ),
                             ),
                             Row(
                               mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.center,
                               children: [
                                 Text(
                                   'National ID Card',
@@ -923,13 +951,16 @@ class CardTemplateWidget extends StatelessWidget {
                                     fontFamily: _enFont,
                                   ),
                                 ),
-                                Text(
-                                  ' / জাতীয় পরিচয় পত্র',
-                                  style: TextStyle(
-                                    color: Colors.black87,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 9,
-                                    fontFamily: _bnFont,
+                                Padding(
+                                  padding: EdgeInsets.only(top: 2.0),
+                                  child: Text(
+                                    ' / জাতীয় পরিচয় পত্র',
+                                    style: TextStyle(
+                                      color: Colors.black87,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 8,
+                                      fontFamily: _bnFont,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -937,19 +968,16 @@ class CardTemplateWidget extends StatelessWidget {
                           ],
                         ),
                       ),
-                      const SizedBox(width: 30), // balance the seal so header stays centred
+                      const SizedBox(width: 20), // balance the seal so header stays centred
                     ],
                   ),
                 ),
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 14),
-                  child: Divider(color: Colors.black87, height: 6, thickness: 1),
-                ),
+                Divider(color: Colors.black87, height: 6, thickness: 1),
                 const SizedBox(height: 4),
                 // Main Content Row
                 Expanded(
                   child: Padding(
-                    padding: const EdgeInsets.only(left: 14, right: 14, bottom: 14),
+                    padding: const EdgeInsets.only(left: 14, right: 14, bottom: 10),
                     child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -993,14 +1021,14 @@ class CardTemplateWidget extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _buildNidRow('নাম:', cardInfo.banglaName.isNotEmpty ? cardInfo.banglaName : 'ছাবরিনা তাবাচ্ছুম সুরাইয়া', isBanglaValue: true, fontSize: 12.5),
-                            _buildNidRow('Name:', cardInfo.englishName.isNotEmpty ? cardInfo.englishName : 'SUBRINA TABASSUM SURAIYA', fontSize: 10.5, isBoldValue: false),
-                            _buildNidRow('পিতা:', cardInfo.banglaFatherName.isNotEmpty ? cardInfo.banglaFatherName : 'মোঃ মাহবুবুর রহমান', isBanglaValue: true, fontSize: 10),
-                            _buildNidRow('মাতা:', cardInfo.banglaMotherName.isNotEmpty ? cardInfo.banglaMotherName : 'খাতুনে জান্নাত শাহানাজ পারভীন', isBanglaValue: true, fontSize: 10),
+                            _buildNidRow('নাম:', cardInfo.banglaName.isNotEmpty ? cardInfo.banglaName : 'ছাবরিনা তাবাচ্ছুম সুরাইয়া', isBanglaValue: true, fontSize: 11.0),
+                            _buildNidRow('Name:', cardInfo.englishName.isNotEmpty ? cardInfo.englishName : 'SUBRINA TABASSUM SURAIYA', fontSize: 8.5, isBoldValue: false),
+                            _buildNidRow('পিতা:', cardInfo.banglaFatherName.isNotEmpty ? cardInfo.banglaFatherName : 'মোঃ মাহবুবুর রহমান', isBanglaValue: true, fontSize: 8.5),
+                            _buildNidRow('মাতা:', cardInfo.banglaMotherName.isNotEmpty ? cardInfo.banglaMotherName : 'খাতুনে জান্নাত শাহানাজ পারভীন', isBanglaValue: true, fontSize: 8.5),
                             
                             // Date of Birth Row
                             Padding(
-                              padding: const EdgeInsets.only(top: 2.0),
+                              padding: const EdgeInsets.only(top: 1.0),
                               child: Row(
                                 crossAxisAlignment: CrossAxisAlignment.baseline,
                                 textBaseline: TextBaseline.alphabetic,
@@ -1009,7 +1037,7 @@ class CardTemplateWidget extends StatelessWidget {
                                     'Date of Birth: ',
                                     style: TextStyle(
                                       color: Colors.black87,
-                                      fontSize: 9,
+                                      fontSize: 8.0,
                                       fontWeight: FontWeight.w600,
                                       fontFamily: _enFont,
                                     ),
@@ -1018,7 +1046,7 @@ class CardTemplateWidget extends StatelessWidget {
                                     cardInfo.dateOfBirth.isNotEmpty ? cardInfo.dateOfBirth : '20 Dec 2006',
                                     style: const TextStyle(
                                       color: _nidRed,
-                                      fontSize: 9,
+                                      fontSize: 8.0,
                                       fontWeight: FontWeight.bold,
                                       fontFamily: _enFont,
                                     ),
@@ -1026,7 +1054,7 @@ class CardTemplateWidget extends StatelessWidget {
                                 ],
                               ),
                             ),
-                            const SizedBox(height: 2),
+                            const SizedBox(height: 1),
                             // ID Number Row
                             Padding(
                               padding: const EdgeInsets.only(bottom: 2.0),
@@ -1038,7 +1066,7 @@ class CardTemplateWidget extends StatelessWidget {
                                     'ID NO: ',
                                     style: TextStyle(
                                       color: Colors.black87,
-                                      fontSize: 9,
+                                      fontSize: 8.0,
                                       fontWeight: FontWeight.w600,
                                       fontFamily: _enFont,
                                     ),
@@ -1047,7 +1075,7 @@ class CardTemplateWidget extends StatelessWidget {
                                     cardInfo.idNumber.isNotEmpty ? cardInfo.idNumber : '8279557295',
                                     style: const TextStyle(
                                       color: _nidRed,
-                                      fontSize: 11,
+                                      fontSize: 9,
                                       fontWeight: FontWeight.w900,
                                       letterSpacing: 0.5,
                                       fontFamily: _enFont,

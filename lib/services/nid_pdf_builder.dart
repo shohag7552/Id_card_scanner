@@ -28,8 +28,8 @@ class NidPdfBuilder {
     final sapla = pw.MemoryImage(await _asset('assets/images/sapla_logo.png'));
 
     final cards = <pw.Widget>[];
-    if (front) cards.add(await _front(info, seal, sapla));
-    if (back) cards.add(await _back(info, sapla));
+    if (front) cards.add(_physical(await _front(info, seal, sapla)));
+    if (back) cards.add(_physical(await _back(info, sapla)));
 
     final doc = pw.Document();
     doc.addPage(
@@ -55,6 +55,18 @@ class NidPdfBuilder {
   static Future<Uint8List> _asset(String path) async =>
       (await rootBundle.load(path)).buffer.asUint8List();
 
+  /// Scales a design-sized card (logical units, CR80 aspect) to the EXACT
+  /// physical CR80 size in PDF points (85.60 × 53.98 mm). Aspect ratios match,
+  /// so this is a uniform scale — vector text/barcode and the high-DPI Bangla
+  /// images stay crisp, and a printed card measures true-to-size.
+  static pw.Widget _physical(pw.Widget designCard) {
+    return pw.SizedBox(
+      width: CardTemplateWidget.nidCardWidthMm * PdfPageFormat.mm,
+      height: CardTemplateWidget.nidCardHeightMm * PdfPageFormat.mm,
+      child: pw.FittedBox(fit: pw.BoxFit.fill, child: designCard),
+    );
+  }
+
   // Helvetica is the PDF standard sans (Arial-like) — selectable, no embedding.
   static final pw.Font _en = pw.Font.helvetica();
   static final pw.Font _enBold = pw.Font.helveticaBold();
@@ -62,7 +74,8 @@ class NidPdfBuilder {
   static pw.TextStyle _enStyle(double size, {PdfColor? color, bool bold = false}) =>
       pw.TextStyle(
         font: bold ? _enBold : _en,
-        fontSize: size,
+        // Scaled so the FittedBox down-scale lands on the standard point size.
+        fontSize: size * CardTemplateWidget.fontScale,
         color: color ?? PdfColors.black,
       );
 
@@ -79,6 +92,9 @@ class NidPdfBuilder {
     double maxWidth = 1000,
     double pixelRatio = 4.0,
   }) async {
+    // Match _enStyle: render at the scaled size so the card's FittedBox brings
+    // it back to the standard point size, identical to the on-screen preview.
+    fontSize = fontSize * CardTemplateWidget.fontScale;
     final style = ui.TextStyle(
       color: ui.Color(color),
       fontSize: fontSize,
@@ -120,6 +136,24 @@ class NidPdfBuilder {
   static pw.Widget _bnImage(_BnImg b) =>
       pw.Image(pw.MemoryImage(b.bytes), width: b.w, height: b.h);
 
+  /// One detail row: a fixed-width [label] column then the [value], left-aligned
+  /// — mirrors the on-screen `_buildNidRow` so all values line up like the real
+  /// NID instead of each label+value being its own free-floating block.
+  static pw.Widget _row(pw.Widget label, pw.Widget value) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(vertical: 1),
+      child: pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.SizedBox(width: 42, child: label),
+          pw.Expanded(
+            child: pw.Align(alignment: pw.Alignment.centerLeft, child: value),
+          ),
+        ],
+      ),
+    );
+  }
+
   // ---- Front ----------------------------------------------------------------
 
   static Future<pw.Widget> _front(
@@ -142,15 +176,20 @@ class NidPdfBuilder {
         : 'খাতুনে জান্নাত শাহানাজ পারভীন';
 
     final hdr = await _bn('গণপ্রজাতন্ত্রী বাংলাদেশ সরকার',
-        fontSize: 13, weight: ui.FontWeight.bold, color: 0xFF1B5E20);
+        fontSize: 13, weight: ui.FontWeight.bold, color: 0xFF000000);
     final natId = await _bn(' / জাতীয় পরিচয় পত্র',
         fontSize: 9, weight: ui.FontWeight.bold);
-    final nameImg = await _bn('নাম: $nameVal',
-        fontSize: 12.5, weight: ui.FontWeight.bold, color: 0xFF111827, maxWidth: 250);
-    final fatherImg = await _bn('পিতা: $fatherVal',
-        fontSize: 10, weight: ui.FontWeight.bold, color: 0xFF111827, maxWidth: 250);
-    final motherImg = await _bn('মাতা: $motherVal',
-        fontSize: 10, weight: ui.FontWeight.bold, color: 0xFF111827, maxWidth: 250);
+    // Labels and values rendered SEPARATELY so the values line up in a column,
+    // exactly like the on-screen card (the combined image broke the alignment).
+    final lblName = await _bn('নাম:', fontSize: 12.5, weight: ui.FontWeight.w600);
+    final lblFather = await _bn('পিতা:', fontSize: 10, weight: ui.FontWeight.w600);
+    final lblMother = await _bn('মাতা:', fontSize: 10, weight: ui.FontWeight.w600);
+    final valName = await _bn(nameVal,
+        fontSize: 12.5, weight: ui.FontWeight.bold, color: 0xFF111827, maxWidth: 205);
+    final valFather = await _bn(fatherVal,
+        fontSize: 10, weight: ui.FontWeight.bold, color: 0xFF111827, maxWidth: 205);
+    final valMother = await _bn(motherVal,
+        fontSize: 10, weight: ui.FontWeight.bold, color: 0xFF111827, maxWidth: 205);
 
     // Photo
     final av = info.avatarBytes;
@@ -234,23 +273,18 @@ class NidPdfBuilder {
                   child: pw.Column(
                     crossAxisAlignment: pw.CrossAxisAlignment.start,
                     children: [
-                      _bnImage(nameImg),
-                      pw.SizedBox(height: 3),
-                      pw.Row(children: [
-                        pw.Text('Name: ', style: _enStyle(10.5, bold: true)),
-                        pw.Expanded(
-                          child: pw.Text(
-                            info.englishName.isNotEmpty
-                                ? info.englishName
-                                : 'SUBRINA TABASSUM SURAIYA',
-                            style: _enStyle(10.5, bold: true),
-                          ),
+                      _row(_bnImage(lblName), _bnImage(valName)),
+                      _row(
+                        pw.Text('Name:', style: _enStyle(10.5)),
+                        pw.Text(
+                          info.englishName.isNotEmpty
+                              ? info.englishName
+                              : 'SUBRINA TABASSUM SURAIYA',
+                          style: _enStyle(10.5, bold: true),
                         ),
-                      ]),
-                      pw.SizedBox(height: 3),
-                      _bnImage(fatherImg),
-                      pw.SizedBox(height: 3),
-                      _bnImage(motherImg),
+                      ),
+                      _row(_bnImage(lblFather), _bnImage(valFather)),
+                      _row(_bnImage(lblMother), _bnImage(valMother)),
                       pw.SizedBox(height: 4),
                       pw.Row(children: [
                         pw.Text('Date of Birth: ', style: _enStyle(9)),
