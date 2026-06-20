@@ -1,9 +1,12 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:pasteboard/pasteboard.dart';
 import '../models/card_info.dart';
 import '../services/gemini_nid_service.dart';
 import '../services/face_cropper.dart';
+import '../services/web_image_paste.dart';
 import '../theme/app_theme.dart';
 import 'card_editor_page.dart';
 import '../widgets/card_template_widgets.dart';
@@ -28,6 +31,10 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
   bool _isScanning = false;
   bool _hasScanned = false;
 
+  /// Web only: which side a user "armed" by tapping Paste. The next Ctrl/⌘+V
+  /// drops the image there. null = nothing armed; true = front; false = back.
+  bool? _pasteTargetFront;
+
   /// Currently selected Gemini model id (kept in sync with the shared
   /// [GeminiNidService.selectedModelId]).
   String _selectedModelId = GeminiNidService.selectedModelId;
@@ -40,6 +47,9 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
   @override
   void initState() {
     super.initState();
+    // On web, capture native Ctrl/⌘+V paste events (handles copied image files
+    // and screenshots across all browsers). No-op on other platforms.
+    WebImagePaste.start(_onWebPastedImages);
     _laserController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 2),
@@ -51,8 +61,89 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
 
   @override
   void dispose() {
+    WebImagePaste.stop();
     _laserController.dispose();
     super.dispose();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Clipboard paste — mirrors the batch scanner. Copied NID images can be pasted
+  // into the FRONT or BACK slot (Ctrl/⌘+V or the "Paste" source option) in
+  // addition to camera/gallery. Never throws; existing pick flow is unaffected.
+  // ---------------------------------------------------------------------------
+
+  Future<Uint8List?> _clipboardImage() async {
+    try {
+      return await Pasteboard.image;
+    } catch (e) {
+      debugPrint('Clipboard image read error: $e');
+      return null;
+    }
+  }
+
+  void _setSideImage(bool isFront, Uint8List bytes) {
+    setState(() {
+      if (isFront) {
+        _frontImagePath = 'pasted_front.png';
+        _frontBytes = bytes;
+      } else {
+        _backImagePath = 'pasted_back.png';
+        _backBytes = bytes;
+      }
+      _hasScanned = false;
+      _pasteTargetFront = null;
+    });
+  }
+
+  /// Pastes a clipboard image into the [isFront] slot. Works directly for copied
+  /// image *content* (screenshots) on every platform; on web a copied *file*
+  /// can't be read from a tap, so we "arm" the slot for the next Ctrl/⌘+V.
+  Future<void> _pasteImage({required bool isFront}) async {
+    if (_isScanning) return;
+    final bytes = await _clipboardImage();
+    if (bytes != null) {
+      _setSideImage(isFront, bytes);
+      return;
+    }
+    if (kIsWeb) {
+      setState(() => _pasteTargetFront = isFront);
+      _toast('Press Ctrl/⌘+V to paste your copied image into the '
+          '${isFront ? 'FRONT' : 'BACK'} side.');
+      return;
+    }
+    _toast('No image found in the clipboard. Copy an NID image first.');
+  }
+
+  /// The side a plain (un-armed) paste should fill: the armed slot if any, else
+  /// the first EMPTY slot (front if empty, otherwise back), so a second paste
+  /// naturally lands on the back instead of overwriting the front.
+  bool _defaultPasteSide() =>
+      _pasteTargetFront ?? (_frontBytes == null ? true : false);
+
+  /// Handles images pasted via the browser (web). If two images are pasted
+  /// together (front+back copied at once) they fill both sides; otherwise the
+  /// image goes to the armed slot, or the first empty slot.
+  void _onWebPastedImages(List<Uint8List> images) {
+    if (!mounted || _isScanning || images.isEmpty) return;
+    if (_pasteTargetFront == null && images.length > 1) {
+      setState(() {
+        _frontImagePath = 'pasted_front.png';
+        _frontBytes = images[0];
+        _backImagePath = 'pasted_back.png';
+        _backBytes = images[1];
+        _hasScanned = false;
+      });
+      _toast('Pasted front + back.');
+      return;
+    }
+    final side = _defaultPasteSide();
+    _setSideImage(side, images.first);
+    _toast('Pasted into the ${side ? 'FRONT' : 'BACK'} side.');
+  }
+
+  void _toast(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _pickImage(ImageSource source, {required bool isFront}) async {
@@ -222,7 +313,20 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
       appBar: AppBar(
         title: const Text('NID SCANNER'),
       ),
-      body: SingleChildScrollView(
+      // Desktop: Ctrl/⌘+V pastes into the armed side (or FRONT). On web the
+      // native paste handler (WebImagePaste) handles Ctrl/⌘+V instead.
+      body: CallbackShortcuts(
+        bindings: kIsWeb
+            ? const <ShortcutActivator, VoidCallback>{}
+            : {
+                const SingleActivator(LogicalKeyboardKey.keyV, control: true): () =>
+                    _pasteImage(isFront: _defaultPasteSide()),
+                const SingleActivator(LogicalKeyboardKey.keyV, meta: true): () =>
+                    _pasteImage(isFront: _defaultPasteSide()),
+              },
+        child: Focus(
+          autofocus: true,
+          child: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(20.0),
           child: ResponsiveCenter(
@@ -266,6 +370,8 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
           ),
         ),
       ),
+        ), // Focus
+      ), // CallbackShortcuts
     );
   }
 
@@ -300,6 +406,16 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
                   _pickImage(ImageSource.gallery, isFront: isFront);
                 },
               ),
+              ListTile(
+                leading: const Icon(Icons.content_paste, color: AppTheme.secondary),
+                title: const Text('Paste from Clipboard', style: TextStyle(color: Colors.white)),
+                subtitle: const Text('Copy an NID image, then paste (or Ctrl/⌘+V)',
+                    style: TextStyle(color: AppTheme.textSecondary, fontSize: 11)),
+                onTap: () {
+                  Navigator.pop(context);
+                  _pasteImage(isFront: isFront);
+                },
+              ),
             ],
           ),
         );
@@ -312,6 +428,8 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
     final bytes = isFront ? _frontBytes : _backBytes;
     final hasImage = path != null;
     final isMock = path?.contains('mock') ?? false;
+    // Web: this slot is waiting for a Ctrl/⌘+V after the user tapped Paste.
+    final armed = _pasteTargetFront == isFront;
 
     return Expanded(
       child: Column(
@@ -335,8 +453,10 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
                 color: AppTheme.surfaceBg,
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(
-                  color: hasImage ? AppTheme.secondary : AppTheme.borderCol,
-                  width: 1.5,
+                  color: armed
+                      ? AppTheme.secondary
+                      : (hasImage ? AppTheme.secondary : AppTheme.borderCol),
+                  width: armed ? 2 : 1.5,
                 ),
                 boxShadow: [
                   if (_isScanning && hasImage)
@@ -360,15 +480,17 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Icon(
-                              isFront ? Icons.add_photo_alternate : Icons.flip_to_back,
+                              armed
+                                  ? Icons.content_paste_go
+                                  : (isFront ? Icons.add_photo_alternate : Icons.flip_to_back),
                               size: 32,
-                              color: AppTheme.borderCol,
+                              color: armed ? AppTheme.secondary : AppTheme.borderCol,
                             ),
                             const SizedBox(height: 6),
-                            const Text(
-                              'Tap to upload',
+                            Text(
+                              armed ? 'Press Ctrl/⌘+V' : 'Tap to upload',
                               style: TextStyle(
-                                color: AppTheme.textSecondary,
+                                color: armed ? AppTheme.secondary : AppTheme.textSecondary,
                                 fontSize: 10,
                                 fontWeight: FontWeight.bold,
                               ),
