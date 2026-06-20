@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:bangla_pdf/bangla_pdf.dart' as bp;
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -79,10 +80,16 @@ class NidPdfBuilder {
         color: color ?? PdfColors.black,
       );
 
-  // ---- Bangla text → image (Nikosh shaped by Flutter) ----------------------
+  // ---- Bangla text (SELECTABLE) via bangla_pdf -----------------------------
 
-  /// Rendered Bangla text: PNG [bytes] plus the logical [w]×[h] to place it at.
-  static Future<_BnImg> _bn(
+  /// Bangla as REAL selectable PDF text (bangla_pdf remaps Unicode onto its
+  /// bundled font so conjuncts/vowels render correctly). Kept async + the same
+  /// params as the old image renderer so every call site is unchanged. fontSize
+  /// is pre-scaled by [fontScale] so the card's FittedBox lands on the standard
+  /// point size — identical to the on-screen preview. (italic / maxWidth /
+  /// pixelRatio are accepted for compatibility; wrapping is handled by the
+  /// parent layout.)
+  static Future<pw.Widget> _bn(
     String text, {
     required double fontSize,
     ui.FontWeight weight = ui.FontWeight.normal,
@@ -90,51 +97,29 @@ class NidPdfBuilder {
     int? bgColor,
     bool italic = false,
     double maxWidth = 1000,
-    double pixelRatio = 4.0,
   }) async {
-    // Match _enStyle: render at the scaled size so the card's FittedBox brings
-    // it back to the standard point size, identical to the on-screen preview.
-    fontSize = fontSize * CardTemplateWidget.fontScale;
-    final style = ui.TextStyle(
-      color: ui.Color(color),
-      fontSize: fontSize,
-      fontWeight: weight,
-      fontStyle: italic ? ui.FontStyle.italic : ui.FontStyle.normal,
-      fontFamily: 'Nikosh',
-      fontFamilyFallback: const ['Arial'],
+    final pw.Widget t = bp.Text(
+      text,
+      fontSize: fontSize * CardTemplateWidget.fontScale,
+      fontWeight: _pwWeight(weight),
+      color: PdfColor.fromInt(color),
     );
-    final builder = ui.ParagraphBuilder(ui.ParagraphStyle(
-      fontFamily: 'Nikosh',
-      fontSize: fontSize,
-    ))
-      ..pushStyle(style)
-      ..addText(text);
-    final para = builder.build()
-      ..layout(ui.ParagraphConstraints(width: maxWidth));
-
-    final lineW = para.longestLine > 0 ? para.longestLine : para.maxIntrinsicWidth;
-    final w = lineW.ceilToDouble().clamp(1.0, maxWidth);
-    final h = para.height;
-
-    final recorder = ui.PictureRecorder();
-    final canvas = ui.Canvas(recorder);
-    canvas.scale(pixelRatio);
-    if (bgColor != null) {
-      canvas.drawRect(
-        ui.Rect.fromLTWH(0, 0, w, h),
-        ui.Paint()..color = ui.Color(bgColor),
-      );
-    }
-    canvas.drawParagraph(para, ui.Offset.zero);
-    final img = await recorder
-        .endRecording()
-        .toImage((w * pixelRatio).ceil(), (h * pixelRatio).ceil());
-    final data = await img.toByteData(format: ui.ImageByteFormat.png);
-    return _BnImg(data!.buffer.asUint8List(), w, h);
+    if (bgColor == null) return t;
+    return pw.Container(
+      color: PdfColor.fromInt(bgColor),
+      padding: const pw.EdgeInsets.symmetric(horizontal: 2),
+      child: t,
+    );
   }
 
-  static pw.Widget _bnImage(_BnImg b) =>
-      pw.Image(pw.MemoryImage(b.bytes), width: b.w, height: b.h);
+  /// The `pdf` package only has normal/bold; treat w600+ as bold.
+  static pw.FontWeight _pwWeight(ui.FontWeight w) =>
+      w.value >= ui.FontWeight.w600.value
+          ? pw.FontWeight.bold
+          : pw.FontWeight.normal;
+
+  /// Identity now (the old image wrapper). Kept so call sites don't change.
+  static pw.Widget _bnImage(pw.Widget w) => w;
 
   /// One detail row: a fixed-width [label] column then the [value], left-aligned
   /// — mirrors the on-screen `_buildNidRow` so all values line up like the real
@@ -146,9 +131,7 @@ class NidPdfBuilder {
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
           pw.SizedBox(width: 42, child: label),
-          pw.Expanded(
-            child: pw.Align(alignment: pw.Alignment.centerLeft, child: value),
-          ),
+          pw.Expanded(child: value),
         ],
       ),
     );
@@ -167,7 +150,7 @@ class NidPdfBuilder {
 
     final nameVal = info.banglaName.isNotEmpty
         ? info.banglaName
-        : 'ছাবরিনা তাবাচ্ছুম সুরাইয়া';
+        : 'সুরাইয়া';
     final fatherVal = info.banglaFatherName.isNotEmpty
         ? info.banglaFatherName
         : 'মোঃ মাহবুবুর রহমান';
@@ -185,11 +168,11 @@ class NidPdfBuilder {
     final lblFather = await _bn('পিতা:', fontSize: 9, weight: ui.FontWeight.w500);
     final lblMother = await _bn('মাতা:', fontSize: 9, weight: ui.FontWeight.w500);
     final valName = await _bn(nameVal,
-        fontSize: 11.0, weight: ui.FontWeight.w600, color: 0xFF111827, maxWidth: 200);
+        fontSize: 11, weight: ui.FontWeight.w900, color: 0xFF111827, maxWidth: 200);
     final valFather = await _bn(fatherVal,
-        fontSize: 10, weight: ui.FontWeight.w500, color: 0xFF111827, maxWidth: 200);
+        fontSize: 9.5, weight: ui.FontWeight.w500, color: 0xFF111827, maxWidth: 200);
     final valMother = await _bn(motherVal,
-        fontSize: 10, weight: ui.FontWeight.w500, color: 0xFF111827, maxWidth: 200);
+        fontSize: 9.5, weight: ui.FontWeight.w500, color: 0xFF111827, maxWidth: 200);
 
     // Photo
     final av = info.avatarBytes;
@@ -210,9 +193,9 @@ class NidPdfBuilder {
           width: 60, height: 20, fit: pw.BoxFit.contain);
     } else {
       final sn = await _bn(
-        nameVal.replaceAll('মো: ', '').replaceAll('মোছা: ', '').trim(),
-        fontSize: 9,
-        weight: ui.FontWeight.bold,
+        nameVal.split(' ')[0].replaceAll('মো: ', '').replaceAll('মোছা: ', '').trim(),
+        fontSize: 7,
+        weight: ui.FontWeight.normal,
         italic: true,
         maxWidth: 66,
       );
@@ -280,7 +263,7 @@ class NidPdfBuilder {
                         pw.Text(
                           info.englishName.isNotEmpty
                               ? info.englishName
-                              : 'SUBRINA TABASSUM SURAIYA',
+                              : '',
                           style: _enStyle(8.5, bold: false),
                         ),
                       ),
@@ -294,16 +277,16 @@ class NidPdfBuilder {
                         pw.Text(
                           info.dateOfBirth.isNotEmpty
                               ? info.dateOfBirth
-                              : '20 Dec 2006',
-                          style: _enStyle(8, color: red, bold: true),
+                              : '',
+                          style: _enStyle(8, color: red, bold: false),
                         ),
                       ]),
                       pw.SizedBox(height: 5),
                       pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.center, children: [
                         pw.Text('ID NO: ', style: _enStyle(8)),
                         pw.Text(
-                          info.idNumber.isNotEmpty ? info.idNumber : '8279557295',
-                          style: _enStyle(9, color: red, bold: true),
+                          info.idNumber.isNotEmpty ? info.idNumber : '',
+                          style: _enStyle(9, color: red, bold: false),
                         ),
                       ]),
                     ],
@@ -374,22 +357,22 @@ class NidPdfBuilder {
         : pw.SizedBox(width: 60, height: 20);
 
     final barcodeData =
-        '<pin>${info.idNumber.isNotEmpty ? info.idNumber : '8279557295'}</pin>'
-        '<name>${info.englishName.isNotEmpty ? info.englishName : 'SUBRINA TABASSUM SURAIYA'}</name>'
-        '<DOB>${info.dateOfBirth.isNotEmpty ? info.dateOfBirth : '20 Dec 2006'}</DOB>';
+        '<pin>${info.idNumber.isNotEmpty ? info.idNumber : ''}</pin>'
+        '<name>${info.englishName.isNotEmpty ? info.englishName : ''}</name>'
+        '<DOB>${info.dateOfBirth.isNotEmpty ? info.dateOfBirth : ''}</DOB>';
 
     final content = pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
         pw.SizedBox(height: 2),
         pw.Padding(
-          padding: const pw.EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          padding: const pw.EdgeInsets.symmetric(horizontal: 14, vertical: 7),
           child: _bnImage(prop),
         ),
         pw.Container(height: 1.2, color: PdfColors.black),
         pw.Expanded(
           child: pw.Padding(
-            padding: const pw.EdgeInsets.fromLTRB(14, 6, 14, 0),
+            padding: const pw.EdgeInsets.fromLTRB(14, 4, 14, 0),
             child: pw.Align(alignment: pw.Alignment.topLeft, child: _bnImage(addr)),
           ),
         ),
@@ -399,9 +382,9 @@ class NidPdfBuilder {
             crossAxisAlignment: pw.CrossAxisAlignment.center,
             children: [
               _bnImage(bloodBn),
-              pw.Text('/Blood Group: ', style: _enStyle(8, bold: true)),
-              pw.Text(info.bloodGroup.isNotEmpty ? info.bloodGroup : 'O+',
-                  style: _enStyle(9, color: red, bold: true)),
+              pw.Text('/Blood Group: ', style: _enStyle(8, bold: false)),
+              pw.Text(info.bloodGroup.isNotEmpty ? info.bloodGroup : '',
+                  style: _enStyle(9, color: red, bold: false)),
               pw.SizedBox(width: 16),
               _bnImage(birth),
               pw.Spacer(),
@@ -454,11 +437,4 @@ class NidPdfBuilder {
       child: child,
     );
   }
-}
-
-class _BnImg {
-  final Uint8List bytes;
-  final double w;
-  final double h;
-  _BnImg(this.bytes, this.w, this.h);
 }

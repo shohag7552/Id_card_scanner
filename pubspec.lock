@@ -25,6 +25,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.13.1"
+  bangla_pdf:
+    dependency: "direct main"
+    description:
+      name: bangla_pdf
+      sha256: "23902f6cddeb6d8ca53b49735c2082d218dba5e9fed5528d09c29e6a8cd561a6"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.0.6"
   barcode:
     dependency: transitive
     description:
