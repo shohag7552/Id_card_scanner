@@ -176,20 +176,20 @@ class NidPdfBuilder {
         : 'খাতুনে জান্নাত শাহানাজ পারভীন';
 
     final hdr = await _bn('গণপ্রজাতন্ত্রী বাংলাদেশ সরকার',
-        fontSize: 13, weight: ui.FontWeight.bold, color: 0xFF000000);
+        fontSize: 12, weight: ui.FontWeight.w500, color: 0xFF000000);
     final natId = await _bn(' / জাতীয় পরিচয় পত্র',
-        fontSize: 9, weight: ui.FontWeight.bold);
+        fontSize: 8, weight: ui.FontWeight.w500);
     // Labels and values rendered SEPARATELY so the values line up in a column,
     // exactly like the on-screen card (the combined image broke the alignment).
-    final lblName = await _bn('নাম:', fontSize: 12.5, weight: ui.FontWeight.w600);
-    final lblFather = await _bn('পিতা:', fontSize: 10, weight: ui.FontWeight.w600);
-    final lblMother = await _bn('মাতা:', fontSize: 10, weight: ui.FontWeight.w600);
+    final lblName = await _bn('নাম:', fontSize: 11.0, weight: ui.FontWeight.w500);
+    final lblFather = await _bn('পিতা:', fontSize: 9, weight: ui.FontWeight.w500);
+    final lblMother = await _bn('মাতা:', fontSize: 9, weight: ui.FontWeight.w500);
     final valName = await _bn(nameVal,
-        fontSize: 12.5, weight: ui.FontWeight.bold, color: 0xFF111827, maxWidth: 205);
+        fontSize: 11.0, weight: ui.FontWeight.w600, color: 0xFF111827, maxWidth: 200);
     final valFather = await _bn(fatherVal,
-        fontSize: 10, weight: ui.FontWeight.bold, color: 0xFF111827, maxWidth: 205);
+        fontSize: 10, weight: ui.FontWeight.w500, color: 0xFF111827, maxWidth: 200);
     final valMother = await _bn(motherVal,
-        fontSize: 10, weight: ui.FontWeight.bold, color: 0xFF111827, maxWidth: 205);
+        fontSize: 10, weight: ui.FontWeight.w500, color: 0xFF111827, maxWidth: 200);
 
     // Photo
     final av = info.avatarBytes;
@@ -207,7 +207,7 @@ class NidPdfBuilder {
     final sigBytes = info.signatureBytes;
     if (sigBytes != null) {
       sig = pw.Image(pw.MemoryImage(sigBytes),
-          width: 66, height: 22, fit: pw.BoxFit.contain);
+          width: 60, height: 20, fit: pw.BoxFit.contain);
     } else {
       final sn = await _bn(
         nameVal.replaceAll('মো: ', '').replaceAll('মোছা: ', '').trim(),
@@ -224,11 +224,11 @@ class NidPdfBuilder {
       children: [
         // Header
         pw.Padding(
-          padding: const pw.EdgeInsets.fromLTRB(8, 6, 8, 2),
+          padding: const pw.EdgeInsets.fromLTRB(10, 8, 14, 2),
           child: pw.Row(
             crossAxisAlignment: pw.CrossAxisAlignment.center,
             children: [
-              pw.Image(seal, width: 30, height: 30),
+              pw.Image(seal, width: 35, height: 35),
               pw.SizedBox(width: 6),
               pw.Expanded(
                 child: pw.Column(
@@ -237,33 +237,33 @@ class NidPdfBuilder {
                     _bnImage(hdr),
                     pw.SizedBox(height: 1),
                     pw.Text("Government of the People's Republic of Bangladesh",
-                        style: _enStyle(8, color: green, bold: true)),
+                        style: _enStyle(7, color: green, bold: false)),
                     pw.SizedBox(height: 1),
                     pw.Row(
                       mainAxisAlignment: pw.MainAxisAlignment.center,
                       crossAxisAlignment: pw.CrossAxisAlignment.center,
                       children: [
                         pw.Text('National ID Card',
-                            style: _enStyle(7, color: red, bold: true)),
-                        _bnImage(natId),
+                            style: _enStyle(7, color: red, bold: false)),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.only(top: 2),
+                          child: _bnImage(natId),
+                        ),
                       ],
                     ),
                   ],
                 ),
               ),
-              pw.SizedBox(width: 30),
+              pw.SizedBox(width: 20),
             ],
           ),
         ),
-        pw.Padding(
-          padding: const pw.EdgeInsets.symmetric(horizontal: 6),
-          child: pw.Container(height: 1, color: PdfColors.black),
-        ),
+        pw.Container(height: 1, color: PdfColors.black),
         pw.SizedBox(height: 4),
         // Body
         pw.Expanded(
           child: pw.Padding(
-            padding: const pw.EdgeInsets.fromLTRB(10, 0, 10, 8),
+            padding: const pw.EdgeInsets.fromLTRB(14, 0, 14, 10),
             child: pw.Row(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
@@ -274,33 +274,36 @@ class NidPdfBuilder {
                     crossAxisAlignment: pw.CrossAxisAlignment.start,
                     children: [
                       _row(_bnImage(lblName), _bnImage(valName)),
+                      pw.SizedBox(height: 3),
                       _row(
-                        pw.Text('Name:', style: _enStyle(10.5)),
+                        pw.Text('Name:', style: _enStyle(8.5)),
                         pw.Text(
                           info.englishName.isNotEmpty
                               ? info.englishName
                               : 'SUBRINA TABASSUM SURAIYA',
-                          style: _enStyle(10.5, bold: true),
+                          style: _enStyle(8.5, bold: false),
                         ),
                       ),
+                      pw.SizedBox(height: 4.5),
                       _row(_bnImage(lblFather), _bnImage(valFather)),
+                      pw.SizedBox(height: 2),
                       _row(_bnImage(lblMother), _bnImage(valMother)),
-                      pw.SizedBox(height: 4),
+                      pw.SizedBox(height: 2),
                       pw.Row(children: [
-                        pw.Text('Date of Birth: ', style: _enStyle(9)),
+                        pw.Text('Date of Birth: ', style: _enStyle(8)),
                         pw.Text(
                           info.dateOfBirth.isNotEmpty
                               ? info.dateOfBirth
                               : '20 Dec 2006',
-                          style: _enStyle(9, color: red, bold: true),
+                          style: _enStyle(8, color: red, bold: true),
                         ),
                       ]),
-                      pw.SizedBox(height: 3),
+                      pw.SizedBox(height: 5),
                       pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.center, children: [
-                        pw.Text('ID NO: ', style: _enStyle(9)),
+                        pw.Text('ID NO: ', style: _enStyle(8)),
                         pw.Text(
                           info.idNumber.isNotEmpty ? info.idNumber : '8279557295',
-                          style: _enStyle(11, color: red, bold: true),
+                          style: _enStyle(9, color: red, bold: true),
                         ),
                       ]),
                     ],
@@ -320,9 +323,12 @@ class NidPdfBuilder {
         children: [
           pw.Positioned.fill(
             child: pw.Center(
-              child: pw.Opacity(
-                opacity: 0.22,
-                child: pw.Image(sapla, width: 132, height: 132),
+              child: pw.Padding(
+                padding: const pw.EdgeInsets.only(top: 50),
+                child: pw.Opacity(
+                  opacity: 0.3,
+                  child: pw.Image(sapla, width: 125, height: 125),
+                ),
               ),
             ),
           ),
@@ -346,12 +352,12 @@ class NidPdfBuilder {
 
     final prop = await _bn(
       'এই কার্ডটি গণপ্রজাতন্ত্রী বাংলাদেশ সরকারের সম্পত্তি। কার্ডটি ব্যবহারকারী ব্যতীত অন্য কোথাও পাওয়া গেলে নিকটস্থ পোস্ট অফিসে জমা দেবার জন্য অনুরোধ করা হলো।',
-      fontSize: 7.5,
+      fontSize: 7.0,
       weight: ui.FontWeight.bold,
-      maxWidth: 338,
+      maxWidth: 322,
     );
     final addr = await _bn('ঠিকানা: $addrVal',
-        fontSize: 8, weight: ui.FontWeight.bold, maxWidth: 338);
+        fontSize: 7.5, weight: ui.FontWeight.bold, maxWidth: 322);
     final bloodBn = await _bn('রক্তের গ্রুপ', fontSize: 8, weight: ui.FontWeight.bold);
     final birth = await _bn('জন্মস্থান: $birthVal',
         fontSize: 8, weight: ui.FontWeight.bold, maxWidth: 130);
@@ -364,8 +370,8 @@ class NidPdfBuilder {
 
     final asb = info.authoritySignatureBytes;
     final pw.Widget authSig = asb != null
-        ? pw.Image(pw.MemoryImage(asb), width: 64, height: 20, fit: pw.BoxFit.contain)
-        : pw.SizedBox(width: 64, height: 20);
+        ? pw.Image(pw.MemoryImage(asb), width: 60, height: 20, fit: pw.BoxFit.contain)
+        : pw.SizedBox(width: 60, height: 20);
 
     final barcodeData =
         '<pin>${info.idNumber.isNotEmpty ? info.idNumber : '8279557295'}</pin>'
@@ -375,24 +381,20 @@ class NidPdfBuilder {
     final content = pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
-        pw.SizedBox(height: 4),
+        pw.SizedBox(height: 2),
         pw.Padding(
-          padding: const pw.EdgeInsets.symmetric(horizontal: 6),
+          padding: const pw.EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           child: _bnImage(prop),
         ),
-        pw.SizedBox(height: 4),
-        pw.Padding(
-          padding: const pw.EdgeInsets.symmetric(horizontal: 6),
-          child: pw.Container(height: 1, color: PdfColors.black),
-        ),
+        pw.Container(height: 1.2, color: PdfColors.black),
         pw.Expanded(
           child: pw.Padding(
-            padding: const pw.EdgeInsets.fromLTRB(6, 5, 6, 0),
+            padding: const pw.EdgeInsets.fromLTRB(14, 6, 14, 0),
             child: pw.Align(alignment: pw.Alignment.topLeft, child: _bnImage(addr)),
           ),
         ),
         pw.Padding(
-          padding: const pw.EdgeInsets.symmetric(horizontal: 6),
+          padding: const pw.EdgeInsets.symmetric(horizontal: 14),
           child: pw.Row(
             crossAxisAlignment: pw.CrossAxisAlignment.center,
             children: [
@@ -400,7 +402,7 @@ class NidPdfBuilder {
               pw.Text('/Blood Group: ', style: _enStyle(8, bold: true)),
               pw.Text(info.bloodGroup.isNotEmpty ? info.bloodGroup : 'O+',
                   style: _enStyle(9, color: red, bold: true)),
-              pw.SizedBox(width: 14),
+              pw.SizedBox(width: 16),
               _bnImage(birth),
               pw.Spacer(),
               _bnImage(mudron),
@@ -408,13 +410,10 @@ class NidPdfBuilder {
           ),
         ),
         pw.SizedBox(height: 4),
-        pw.Padding(
-          padding: const pw.EdgeInsets.symmetric(horizontal: 6),
-          child: pw.Container(height: 1, color: PdfColors.black),
-        ),
+        pw.Container(height: 1, color: PdfColors.black),
         pw.SizedBox(height: 2),
         pw.Padding(
-          padding: const pw.EdgeInsets.fromLTRB(6, 0, 12, 0),
+          padding: const pw.EdgeInsets.fromLTRB(14, 0, 18, 0),
           child: pw.Row(
             crossAxisAlignment: pw.CrossAxisAlignment.end,
             children: [

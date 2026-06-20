@@ -603,8 +603,8 @@ class _BatchScanPageState extends State<BatchScanPage> {
   }
 
   Future<void> _downloadItemPdf(BatchItem item, _Side side) async {
-    // Native, selectable/editable PDF (Bangla as crisp images) — front + back on
-    // ONE page for "both", or a single side otherwise.
+    // Native, selectable/editable PDF (English/numbers as real text, Bangla as
+    // crisp images) — front + back on ONE page for "both".
     Uint8List? pdfBytes;
     try {
       pdfBytes = await NidPdfBuilder.build(
