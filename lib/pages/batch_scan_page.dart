@@ -361,24 +361,40 @@ class _BatchScanPageState extends State<BatchScanPage> {
     }
   }
 
+  /// Serialises access to the single off-screen render host. The batch loop and
+  /// a re-render triggered by editing an already-finished card both mount into
+  /// the same RepaintBoundary keys, so they must never run at the same time —
+  /// this chains every render so they take turns.
+  Future<void> _renderQueue = Future<void>.value();
+
+  Future<void> _serializeRender(Future<void> Function() task) {
+    final next = _renderQueue.then((_) => task());
+    // Keep the chain alive even if one render throws.
+    _renderQueue = next.catchError((_) {});
+    return next;
+  }
+
   /// Mounts [item] in the hidden render host, waits for it to paint, and
   /// captures the combined image plus each side individually — so the user can
   /// later download any side, in any format, with no re-render.
-  Future<void> _renderItem(BatchItem item) async {
-    setState(() => _renderTarget = item);
+  Future<void> _renderItem(BatchItem item) {
+    return _serializeRender(() async {
+      if (!mounted) return;
+      setState(() => _renderTarget = item);
 
-    // Let the host build, then make sure its in-memory images are decoded
-    // before we rasterize — otherwise the photo/signature paint blank.
-    await WidgetsBinding.instance.endOfFrame;
-    await _precacheItemImages(item);
-    await WidgetsBinding.instance.endOfFrame;
-    await Future.delayed(const Duration(milliseconds: 120));
+      // Let the host build, then make sure its in-memory images are decoded
+      // before we rasterize — otherwise the photo/signature paint blank.
+      await WidgetsBinding.instance.endOfFrame;
+      await _precacheItemImages(item);
+      await WidgetsBinding.instance.endOfFrame;
+      await Future.delayed(const Duration(milliseconds: 120));
 
-    item.frontPng = await _capturePng(_frontKey);
-    item.backPng = await _capturePng(_backKey);
-    item.combinedPng = await _capturePng(_combinedKey);
+      item.frontPng = await _capturePng(_frontKey);
+      item.backPng = await _capturePng(_backKey);
+      item.combinedPng = await _capturePng(_combinedKey);
 
-    if (mounted) setState(() => _renderTarget = null);
+      if (mounted) setState(() => _renderTarget = null);
+    });
   }
 
   Future<void> _precacheItemImages(BatchItem item) async {
@@ -1309,8 +1325,9 @@ class _BatchScanPageState extends State<BatchScanPage> {
   }
 
   Widget _buildItemTile(BatchItem item) {
-    // Finished cards are tappable: tap opens the editor to view/edit details.
-    final tappable = item.status == BatchStatus.done && !_processing;
+    // Finished cards are tappable as soon as they're done — even while other
+    // cards in the batch are still processing.
+    final tappable = item.status == BatchStatus.done;
     final tile = Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -1424,14 +1441,14 @@ class _BatchScanPageState extends State<BatchScanPage> {
           children: [
             const Icon(Icons.check_circle, color: AppTheme.secondary, size: 18),
             IconButton(
-              onPressed: _processing ? null : () => _openReadyCard(item),
+              onPressed: () => _openReadyCard(item),
               icon: const Icon(Icons.edit_outlined, color: AppTheme.secondary),
               iconSize: 20,
               visualDensity: VisualDensity.compact,
               tooltip: 'View / edit details',
             ),
             IconButton(
-              onPressed: _processing ? null : () => _showItemDownloadSheet(item),
+              onPressed: () => _showItemDownloadSheet(item),
               icon: const Icon(Icons.download_for_offline, color: AppTheme.secondary),
               iconSize: 22,
               visualDensity: VisualDensity.compact,
