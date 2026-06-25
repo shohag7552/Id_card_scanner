@@ -1233,24 +1233,17 @@ class CardTemplateWidget extends StatelessWidget {
                     // Signature Image or doodle
                 Column(
                   children: [
-                    Builder(
-                      builder: (context) {
-                        final authSigBytes = cardInfo.authoritySignatureBytes;
-
-                        if (authSigBytes != null) {
-                          return Image.memory(
-                            authSigBytes,
-                            height: 20,
-                            width: 60,
-                            fit: BoxFit.contain,
-                          );
-                        } else {
-                          return CustomPaint(
-                            size: const Size(60, 20),
-                            painter: SignaturePainter(),
-                          );
-                        }
-                      },
+                    // Fixed issuing-authority signature — same for every
+                    // Bangladesh NID (not derived from the scanned card).
+                    Image.asset(
+                      'assets/images/authority_signature.png',
+                      height: 20,
+                      width: 60,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) => CustomPaint(
+                        size: const Size(60, 20),
+                        painter: SignaturePainter(),
+                      ),
                     ),
 
                     const Text(

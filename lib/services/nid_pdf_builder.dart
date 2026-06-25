@@ -351,10 +351,19 @@ class NidPdfBuilder {
     final issue = await _bn('প্রদানের তারিখ: $issueVal',
         fontSize: 8, weight: ui.FontWeight.bold, maxWidth: 160);
 
-    final asb = info.authoritySignatureBytes;
-    final pw.Widget authSig = asb != null
-        ? pw.Image(pw.MemoryImage(asb), width: 60, height: 20, fit: pw.BoxFit.contain)
-        : pw.SizedBox(width: 60, height: 20);
+    // Fixed issuing-authority signature — same for every Bangladesh NID
+    // (not derived from the scanned card).
+    pw.Widget authSig;
+    try {
+      authSig = pw.Image(
+        pw.MemoryImage(await _asset('assets/images/authority_signature.png')),
+        width: 60,
+        height: 20,
+        fit: pw.BoxFit.cover,
+      );
+    } catch (_) {
+      authSig = pw.SizedBox(width: 60, height: 20);
+    }
 
     final barcodeData =
         '<pin>${info.idNumber.isNotEmpty ? info.idNumber : ''}</pin>'
