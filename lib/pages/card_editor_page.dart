@@ -18,10 +18,17 @@ class CardEditorPage extends StatefulWidget {
   final CardInfo initialInfo;
   final CardTemplateType selectedTemplate;
 
+  /// When true, the page pops with the (possibly edited) [CardInfo] as its
+  /// result so a caller can pick up the changes — e.g. the batch list opens
+  /// this editor for a finished card and re-renders it with the edits. Existing
+  /// callers leave this false and pop with no result exactly as before.
+  final bool returnInfoOnPop;
+
   const CardEditorPage({
     super.key,
     required this.initialInfo,
     required this.selectedTemplate,
+    this.returnInfoOnPop = false,
   });
 
   @override
@@ -449,7 +456,7 @@ class _CardEditorPageState extends State<CardEditorPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    final scaffold = Scaffold(
       appBar: AppBar(
         title: const Text('Template Editor'),
         actions: [
@@ -488,6 +495,16 @@ class _CardEditorPageState extends State<CardEditorPage> {
           ),
         ),
       ),
+    );
+
+    if (!widget.returnInfoOnPop) return scaffold;
+    return PopScope<CardInfo>(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        Navigator.pop(context, _cardInfo);
+      },
+      child: scaffold,
     );
   }
 

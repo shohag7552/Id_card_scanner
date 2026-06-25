@@ -18,6 +18,7 @@ import '../widgets/adaptive_sheet.dart';
 import '../widgets/card_template_widgets.dart';
 import '../widgets/responsive_center.dart';
 import '../widgets/model_selector.dart';
+import 'card_editor_page.dart';
 
 /// Which side(s) of a card to export for a single-item download.
 enum _Side {
@@ -325,7 +326,6 @@ class _BatchScanPageState extends State<BatchScanPage> {
     }
 
     if (mounted) setState(() => _processing = false);
-    if (!_cancelled) await _autoDownloadIfReady();
   }
 
   /// Scans one item, then renders it unless it needs review.
@@ -424,7 +424,6 @@ class _BatchScanPageState extends State<BatchScanPage> {
       await _processOne(item);
     }
     if (mounted) setState(() => _processing = false);
-    if (!_cancelled) await _autoDownloadIfReady();
   }
 
   // ---------------------------------------------------------------------------
@@ -441,25 +440,56 @@ class _BatchScanPageState extends State<BatchScanPage> {
     item.info = edited;
     item.error = null;
     await _renderAndFinish(item);
-    await _autoDownloadIfReady();
+  }
+
+  /// Opens the full card editor in a centered dialog for a finished [item] so
+  /// the user can view and tweak its details. Any edits flow back and the item
+  /// is re-rendered, so its per-item/ZIP downloads reflect the changes.
+  /// Cancelling (no change) leaves the item exactly as it was.
+  Future<void> _openReadyCard(BatchItem item) async {
+    final edited = await showGeneralDialog<CardInfo>(
+      context: context,
+      barrierDismissible: false,
+      barrierLabel: 'Edit NID',
+      barrierColor: Colors.black.withAlpha(170),
+      transitionDuration: const Duration(milliseconds: 240),
+      pageBuilder: (context, _, _) => Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 560, maxHeight: 820),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: CardEditorPage(
+                initialInfo: item.info,
+                selectedTemplate: CardTemplateType.bangladeshNid,
+                returnInfoOnPop: true,
+              ),
+            ),
+          ),
+        ),
+      ),
+      transitionBuilder: (context, anim, _, child) {
+        final curved = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
+        return FadeTransition(
+          opacity: curved,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.95, end: 1.0).animate(curved),
+            child: child,
+          ),
+        );
+      },
+    );
+    if (!mounted || edited == null || identical(edited, item.info)) return;
+    item.info = edited;
+    await _renderAndFinish(item);
   }
 
   // ---------------------------------------------------------------------------
   // Delivery
   // ---------------------------------------------------------------------------
 
-  /// Downloads automatically only when everything is resolved (nothing left to
-  /// review and at least one card is ready).
-  Future<void> _autoDownloadIfReady() async {
-    final ready = _items.where((i) => i.status == BatchStatus.done).length;
-    final pending =
-        _items.where((i) => i.status == BatchStatus.needsReview).length;
-    if (ready > 0 && pending == 0) {
-      await _downloadZip(auto: true);
-    }
-  }
-
-  Future<void> _downloadZip({bool auto = false}) async {
+  Future<void> _downloadZip() async {
     final ready = _items
         .where((i) => i.status == BatchStatus.done && i.combinedPng != null)
         .toList();
@@ -492,7 +522,7 @@ class _BatchScanPageState extends State<BatchScanPage> {
       SnackBar(
         backgroundColor: AppTheme.secondary,
         content: Text(
-          '${auto ? 'Done! ' : ''}$filename (${ready.length} cards) $where.',
+          '$filename (${ready.length} cards) $where.',
           style: const TextStyle(color: Colors.black),
         ),
       ),
@@ -1279,7 +1309,9 @@ class _BatchScanPageState extends State<BatchScanPage> {
   }
 
   Widget _buildItemTile(BatchItem item) {
-    return Container(
+    // Finished cards are tappable: tap opens the editor to view/edit details.
+    final tappable = item.status == BatchStatus.done && !_processing;
+    final tile = Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: AppTheme.surfaceBg,
@@ -1320,6 +1352,17 @@ class _BatchScanPageState extends State<BatchScanPage> {
           const SizedBox(width: 8),
           _buildItemTrailing(item),
         ],
+      ),
+    );
+
+    if (!tappable) return tile;
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => _openReadyCard(item),
+        child: tile,
       ),
     );
   }
@@ -1380,7 +1423,13 @@ class _BatchScanPageState extends State<BatchScanPage> {
           mainAxisSize: MainAxisSize.min,
           children: [
             const Icon(Icons.check_circle, color: AppTheme.secondary, size: 18),
-            const SizedBox(width: 4),
+            IconButton(
+              onPressed: _processing ? null : () => _openReadyCard(item),
+              icon: const Icon(Icons.edit_outlined, color: AppTheme.secondary),
+              iconSize: 20,
+              visualDensity: VisualDensity.compact,
+              tooltip: 'View / edit details',
+            ),
             IconButton(
               onPressed: _processing ? null : () => _showItemDownloadSheet(item),
               icon: const Icon(Icons.download_for_offline, color: AppTheme.secondary),
@@ -1409,7 +1458,6 @@ class _BatchScanPageState extends State<BatchScanPage> {
     setState(() => _processing = true);
     await _processOne(item);
     if (mounted) setState(() => _processing = false);
-    await _autoDownloadIfReady();
   }
 
   Widget _buildActionBar() {
