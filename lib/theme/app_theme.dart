@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 class AppTheme {
   // Brand Colors
@@ -38,6 +39,9 @@ class AppTheme {
       useMaterial3: true,
       brightness: Brightness.dark,
       scaffoldBackgroundColor: darkBg,
+      // Bangla (Bengali) glyphs across the app resolve through Noto Serif
+      // Bengali; English keeps the default Latin font unchanged.
+      fontFamilyFallback: [GoogleFonts.notoSerifBengali().fontFamily!],
       colorScheme: const ColorScheme.dark(
         primary: primary,
         secondary: secondary,

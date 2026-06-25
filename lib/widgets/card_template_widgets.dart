@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:barcode_widget/barcode_widget.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../models/card_info.dart';
 
 enum CardTemplateType {
@@ -831,13 +832,12 @@ class CardTemplateWidget extends StatelessWidget {
   }
 
   // 5. Bangladesh National ID Card Template (Horizontal: 350 x 215)
-  // Recommended NID fonts per the official design blueprint:
-  //   English text → Arial,  Bangla text → Bangla Medium.
-  // 'Arial' resolves on web/desktop. For true 'Bangla Medium' on every platform,
-  // drop the .ttf into assets/fonts/ and register family 'Bangla Medium' in
-  // pubspec.yaml; until then Bangla falls back to the system Bengali font.
+  // Fonts: English text → Arial; Bangla text → Noto Serif Bengali, fetched at
+  // runtime via google_fonts and preloaded in main() so the off-screen NID→PNG
+  // capture renders it correctly. ('Arial' resolves on web/desktop.)
   static const String _enFont = 'Arial';
-  static const String _bnFont = 'Nikosh';
+  static final String _bnFont =
+      GoogleFonts.notoSerifBengali().fontFamily ?? 'serif';
 
   // Colours from the real card.
   static const Color _nidGreen = Color(0xFF1E7D32);
@@ -916,7 +916,7 @@ class CardTemplateWidget extends StatelessWidget {
                         fit: BoxFit.contain,
                       ),
                       const SizedBox(width: 6),
-                      const Expanded(
+                      Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
@@ -1003,7 +1003,7 @@ class CardTemplateWidget extends StatelessWidget {
                                   cardInfo.banglaName.isNotEmpty 
                                       ? cardInfo.banglaName.replaceAll('মো: ', '').replaceAll('মোছা: ', '').trim()
                                       : 'তাবাচ্ছুম',
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 9,
                                     fontStyle: FontStyle.italic,
                                     fontWeight: FontWeight.bold,
@@ -1075,9 +1075,9 @@ class CardTemplateWidget extends StatelessWidget {
                                     cardInfo.idNumber.isNotEmpty ? cardInfo.idNumber : '8279557295',
                                     style: const TextStyle(
                                       color: _nidRed,
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.w900,
-                                      letterSpacing: 0.5,
+                                      fontSize: 9.5,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 0.6,
                                       fontFamily: _enFont,
                                     ),
                                   ),
@@ -1116,7 +1116,7 @@ class CardTemplateWidget extends StatelessWidget {
         ],
       ),
       child: DefaultTextStyle.merge(
-        style: const TextStyle(fontFamily: _bnFont, color: Colors.black),
+        style: TextStyle(fontFamily: _bnFont, color: Colors.black),
         child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

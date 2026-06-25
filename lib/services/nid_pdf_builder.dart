@@ -14,9 +14,9 @@ import '../widgets/card_template_widgets.dart' show CardTemplateWidget;
 ///
 /// Hybrid strategy (see chat): English text, numbers, the photo/signatures and
 /// the PDF417 barcode are placed as real PDF objects (selectable + editable).
-/// Bangla lines are rendered to crisp images via Flutter (which shapes Nikosh
-/// correctly) because the `pdf` package can't shape Bengali conjuncts/vowels —
-/// so the Bangla *looks* right even though those specific lines aren't text.
+/// Bangla lines are emitted as real *selectable* PDF text via the `bangla_pdf`
+/// package, which remaps Unicode onto its bundled font so conjuncts/vowels
+/// render correctly (the `pdf` package can't shape Bengali on its own).
 class NidPdfBuilder {
   /// Builds the PDF. [front]/[back] choose which sides to include (both → one
   /// page with the front above the back).
@@ -286,7 +286,7 @@ class NidPdfBuilder {
                         pw.Text('ID NO: ', style: _enStyle(8)),
                         pw.Text(
                           info.idNumber.isNotEmpty ? info.idNumber : '',
-                          style: _enStyle(9, color: red, bold: false),
+                          style: _enStyle(9.5, color: red, bold: false),
                         ),
                       ]),
                     ],
