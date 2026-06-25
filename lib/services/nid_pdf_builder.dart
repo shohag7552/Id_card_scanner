@@ -146,7 +146,6 @@ class NidPdfBuilder {
   ) async {
     final green = PdfColor.fromInt(0xFF1E7D32);
     final red = PdfColor.fromInt(0xFFD32F2F);
-    final border = PdfColor.fromInt(0xFF9AA4B2);
 
     final nameVal = info.banglaName.isNotEmpty
         ? info.banglaName
@@ -300,7 +299,6 @@ class NidPdfBuilder {
     );
 
     return _cardFrame(
-      border: border,
       child: pw.Stack(
         fit: pw.StackFit.expand,
         children: [
@@ -325,7 +323,6 @@ class NidPdfBuilder {
 
   static Future<pw.Widget> _back(CardInfo info, pw.MemoryImage sapla) async {
     final red = PdfColor.fromInt(0xFFD32F2F);
-    final border = PdfColor.fromInt(0xFF9AA4B2);
 
     final addrVal = info.address.isNotEmpty
         ? info.address
@@ -432,18 +429,16 @@ class NidPdfBuilder {
       ],
     );
 
-    return _cardFrame(border: border, child: content);
+    return _cardFrame(child: content);
   }
 
-  static pw.Widget _cardFrame({required PdfColor border, required pw.Widget child}) {
+  static pw.Widget _cardFrame({required pw.Widget child}) {
     return pw.Container(
       // Same size as the on-screen preview so the PDF matches exactly.
       width: CardTemplateWidget.nidCardWidth,
       height: CardTemplateWidget.nidCardHeight,
-      decoration: pw.BoxDecoration(
-        color: PdfColors.white,
-        border: pw.Border.all(color: border, width: 1),
-      ),
+      // No border on the downloaded PDF (kept borderless per request).
+      decoration: const pw.BoxDecoration(color: PdfColors.white),
       child: child,
     );
   }
