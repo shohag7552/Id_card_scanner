@@ -3,16 +3,26 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'dart:ui' as ui;
 import 'package:image_picker/image_picker.dart';
+import 'package:pasteboard/pasteboard.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import '../models/card_info.dart';
 import '../services/file_export.dart';
 import '../services/nid_pdf_builder.dart';
+import '../services/web_image_paste.dart';
 import '../theme/app_theme.dart';
 import '../widgets/card_template_widgets.dart';
 import '../widgets/responsive_center.dart';
 import '../widgets/adaptive_sheet.dart';
+
+/// The two editable card images that support paste (and gallery pick).
+enum _ImageSlot {
+  photo,
+  signature;
+
+  String get label => this == _ImageSlot.photo ? 'Photo' : 'Signature';
+}
 
 class CardEditorPage extends StatefulWidget {
   final CardInfo initialInfo;
@@ -47,11 +57,24 @@ class _CardEditorPageState extends State<CardEditorPage> {
 
   bool _isSaving = false;
 
+  /// Web only: the image slot "armed" by tapping its paste icon. The next
+  /// Ctrl/⌘+V drops the pasted image here. Null when nothing is armed.
+  _ImageSlot? _armedSlot;
+
   @override
   void initState() {
     super.initState();
     _cardInfo = widget.initialInfo;
     _selectedTemplate = widget.selectedTemplate;
+    // On web, capture native Ctrl/⌘+V paste events for the armed image slot.
+    // No-op on other platforms (they read the clipboard directly).
+    WebImagePaste.start(_onWebPastedImages);
+  }
+
+  @override
+  void dispose() {
+    WebImagePaste.stop();
+    super.dispose();
   }
 
   Future<void> _pickNewAvatar() async {
@@ -93,21 +116,81 @@ class _CardEditorPageState extends State<CardEditorPage> {
     }
   }
 
-  Future<void> _pickNewAuthoritySignature() async {
+  /// Reads an image off the system clipboard (Ctrl/⌘+C'd screenshot or image).
+  /// Returns null — and never throws — when there is nothing usable.
+  Future<Uint8List?> _clipboardImage() async {
     try {
-      final XFile? image = await _picker.pickImage(
-        source: ImageSource.gallery,
-        imageQuality: 85,
-      );
-      if (image != null) {
-        final bytes = await image.readAsBytes();
-        setState(() {
-          _cardInfo = _cardInfo.copyWith(authoritySignatureBytes: bytes);
-        });
-      }
+      return await Pasteboard.image;
     } catch (e) {
-      debugPrint('Error picking authority signature: $e');
+      debugPrint('Clipboard image read error: $e');
+      return null;
     }
+  }
+
+  /// Stores a pasted/picked image into the right field for [slot].
+  void _applyImage(_ImageSlot slot, Uint8List bytes) {
+    if (slot == _ImageSlot.photo) {
+      _cardInfo = _cardInfo.copyWith(avatarBytes: bytes);
+    } else {
+      _cardInfo = _cardInfo.copyWith(signatureBytes: bytes);
+    }
+  }
+
+  /// Pastes a clipboard image into [slot] — same flow as the Batch scanner.
+  ///
+  /// First tries a direct clipboard read (works on every platform for copied
+  /// image *content* like screenshots). On web, a copied image *file* can't be
+  /// read from a button tap — only from a real paste event — so we "arm" this
+  /// slot and let the user press Ctrl/⌘+V to drop the image exactly here.
+  Future<void> _pasteImage(_ImageSlot slot) async {
+    final bytes = await _clipboardImage();
+    if (bytes != null) {
+      setState(() {
+        _applyImage(slot, bytes);
+        _armedSlot = null;
+      });
+      return;
+    }
+
+    if (kIsWeb) {
+      setState(() => _armedSlot = slot);
+      _toast('Press Ctrl/⌘+V to paste your copied image into the ${slot.label}.');
+      return;
+    }
+
+    _toast('No image found in the clipboard. Copy an image first.');
+  }
+
+  /// Web paste-event sink: drops the first pasted image into the armed slot.
+  void _onWebPastedImages(List<Uint8List> images) {
+    if (!mounted || images.isEmpty) return;
+    final slot = _armedSlot;
+    if (slot == null) return; // nothing armed — ignore so we don't hijack.
+    setState(() {
+      _applyImage(slot, images.first);
+      _armedSlot = null;
+    });
+    _toast('Pasted into the ${slot.label}.');
+  }
+
+  void _toast(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  /// Small icon button used inside an image tile (paste / copy).
+  Widget _tileMiniButton(IconData icon, String tooltip, VoidCallback onTap) {
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(6),
+        child: Padding(
+          padding: const EdgeInsets.all(4),
+          child: Icon(icon, size: 15, color: AppTheme.secondary),
+        ),
+      ),
+    );
   }
 
   /// Renders the widget behind [key] to PNG bytes. Returns null on failure.
@@ -574,18 +657,107 @@ class _CardEditorPageState extends State<CardEditorPage> {
     );
   }
 
-  Widget _buildEditorActionButton(String label, VoidCallback onPressed, IconData icon) {
-    return TextButton.icon(
-      onPressed: onPressed,
-      icon: Icon(icon, size: 12),
-      label: Text(label, style: const TextStyle(fontSize: 10)),
-      style: TextButton.styleFrom(
-        foregroundColor: AppTheme.secondary,
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        minimumSize: Size.zero,
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        backgroundColor: Colors.white10,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+  /// A tappable tile in EDIT DETAILS that previews the current image [bytes]
+  /// (photo or signature). Tapping the tile picks from the gallery; the paste
+  /// icon pastes from the clipboard (Batch-scanner flow: direct read, or arm +
+  /// Ctrl/⌘+V on web). [light] uses a white backdrop + contain fit, suited to
+  /// dark-on-transparent signatures; otherwise the image covers the tile.
+  Widget _buildImageEditTile({
+    required String label,
+    required Uint8List? bytes,
+    required IconData icon,
+    required _ImageSlot slot,
+    required VoidCallback onTap,
+    bool light = false,
+  }) {
+    final hasImage = bytes != null;
+    final armed = _armedSlot == slot;
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: AppTheme.darkBg,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: armed ? AppTheme.secondary : AppTheme.borderCol,
+              width: armed ? 1.5 : 1,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(icon, size: 13, color: AppTheme.textSecondary),
+                  const SizedBox(width: 6),
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      color: AppTheme.textSecondary,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 10,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  const Spacer(),
+                  _tileMiniButton(
+                    Icons.content_paste,
+                    'Paste image from clipboard',
+                    () => _pasteImage(slot),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  height: 54,
+                  width: double.infinity,
+                  alignment: Alignment.center,
+                  color: light ? Colors.white : AppTheme.surfaceBg,
+                  child: hasImage
+                      ? Image.memory(bytes, fit: light ? BoxFit.contain : BoxFit.cover)
+                      : Icon(icon, color: AppTheme.textSecondary, size: 22),
+                ),
+              ),
+              if (armed)
+                const Padding(
+                  padding: EdgeInsets.only(top: 6),
+                  child: Text(
+                    'Press Ctrl/⌘+V to paste here',
+                    style: TextStyle(
+                      color: AppTheme.secondary,
+                      fontSize: 9,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    hasImage ? Icons.swap_horiz : Icons.add_photo_alternate,
+                    size: 14,
+                    color: AppTheme.secondary,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    hasImage ? 'Change' : 'Add',
+                    style: const TextStyle(
+                      color: AppTheme.secondary,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -610,13 +782,27 @@ class _CardEditorPageState extends State<CardEditorPage> {
               letterSpacing: 1.0,
             ),
           ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
+          const SizedBox(height: 12),
+          // Photo (avatar) + holder signature — tap a tile to pick a new image.
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildEditorActionButton('Photo', _pickNewAvatar, Icons.add_photo_alternate),
-              _buildEditorActionButton('Holder Sign', _pickNewSignature, Icons.edit),
-              _buildEditorActionButton('Auth Sign', _pickNewAuthoritySignature, Icons.draw),
+              _buildImageEditTile(
+                label: 'PHOTO',
+                bytes: _cardInfo.avatarBytes,
+                icon: Icons.person,
+                slot: _ImageSlot.photo,
+                onTap: _pickNewAvatar,
+              ),
+              const SizedBox(width: 10),
+              _buildImageEditTile(
+                label: 'SIGNATURE',
+                bytes: _cardInfo.signatureBytes,
+                icon: Icons.draw,
+                slot: _ImageSlot.signature,
+                onTap: _pickNewSignature,
+                light: true,
+              ),
             ],
           ),
           const SizedBox(height: 16),
