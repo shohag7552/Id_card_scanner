@@ -331,7 +331,8 @@ class NidPdfBuilder {
         ? info.address
         : 'বাসা/হোল্ডিং: ৪২৩, গ্রাম/রাস্তা: কীর্তিপাশা, ডাকঘর: কীর্তিপাশা - ৮৪০০, ঝালকাঠী সদর, ঝালকাঠী';
     final birthVal = info.birthPlace.isNotEmpty ? info.birthPlace : 'ঝালকাঠী';
-    final issueVal = info.issueDate.isNotEmpty ? info.issueDate : '০৮/০৬/২০২৬';
+    // Always the generation date (today), not any scanned/stored value.
+    final issueVal = CardTemplateWidget.issueDateBangla();
 
     final prop = await _bn(
       'এই কার্ডটি গণপ্রজাতন্ত্রী বাংলাদেশ সরকারের সম্পত্তি। কার্ডটি ব্যবহারকারী ব্যতীত অন্য কোথাও পাওয়া গেলে নিকটস্থ পোস্ট অফিসে জমা দেবার জন্য অনুরোধ করা হলো।',

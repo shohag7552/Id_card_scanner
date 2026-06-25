@@ -844,6 +844,30 @@ class CardTemplateWidget extends StatelessWidget {
   static const Color _nidRed = Color(0xFFD32F2F);
   static const Color _nidBorder = Color(0xFF9AA4B2);
 
+  /// "প্রদানের তারিখ" (issue date) for a generated NID = the generation date,
+  /// i.e. today, formatted DD/MM/YYYY in Bangla digits (e.g. ০৮/০৬/২০২৬).
+  static String issueDateBangla() {
+    final now = DateTime.now();
+    final dd = _toBanglaDigits(now.day.toString().padLeft(2, '0'));
+    final mm = _toBanglaDigits(now.month.toString().padLeft(2, '0'));
+    final yyyy = _toBanglaDigits(now.year.toString());
+    return '$dd/$mm/$yyyy';
+  }
+
+  /// Converts the ASCII digits 0-9 in [input] to their Bangla equivalents.
+  static String _toBanglaDigits(String input) {
+    const bn = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
+    final buffer = StringBuffer();
+    for (final code in input.codeUnits) {
+      if (code >= 0x30 && code <= 0x39) {
+        buffer.write(bn[code - 0x30]);
+      } else {
+        buffer.writeCharCode(code);
+      }
+    }
+    return buffer.toString();
+  }
+
   /// Physical NID size — standard CR80 / ISO/IEC 7810 ID-1 card. The PDF is
   /// rendered at exactly these millimetres so a printed card is true-to-size.
   static const double nidCardWidthMm = 85.60;
@@ -1270,7 +1294,8 @@ class CardTemplateWidget extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      cardInfo.issueDate.isNotEmpty ? cardInfo.issueDate : '০৮/০৬/২০২৬',
+                      // Always the generation date (today) — see issueDateBangla.
+                      issueDateBangla(),
                       style: const TextStyle(
                         color: Colors.black,
                         fontWeight: FontWeight.bold,
