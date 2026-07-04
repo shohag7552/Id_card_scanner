@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'dart:convert';
 import 'dart:ui' as ui;
 import 'package:image_picker/image_picker.dart';
 import 'package:pasteboard/pasteboard.dart';
@@ -9,6 +10,8 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import '../models/card_info.dart';
 import '../services/file_export.dart';
+import '../services/nid_editable_html.dart';
+import '../services/nid_html_printer.dart';
 import '../services/nid_pdf_builder.dart';
 import '../services/web_image_paste.dart';
 import '../theme/app_theme.dart';
@@ -313,6 +316,12 @@ class _CardEditorPageState extends State<CardEditorPage> {
                 ] else
                   _downloadTile(Icons.picture_as_pdf, 'Download as PDF',
                       () => _downloadPdf([_repaintKey], 'card')),
+                if (isNid) ...[
+                  const Divider(color: AppTheme.borderCol),
+                  _sheetSectionLabel('EDITABLE · BANGLA AS TEXT'),
+                  _downloadTile(Icons.public, 'Open in browser → Save as PDF',
+                      () => _downloadEditable('front-back')),
+                ],
                 const SizedBox(height: 8),
               ],
             ),
@@ -405,6 +414,44 @@ class _CardEditorPageState extends State<CardEditorPage> {
     }
     final filename = '${_safeName()}_$suffix.pdf';
     await _deliverFile(pdfBytes, filename);
+  }
+
+  /// Exports the NID as a self-contained HTML whose Bangla is REAL Unicode text
+  /// and opens it in the browser, which pops the print dialog → "Save as PDF".
+  /// That PDF opens with editable Bangla in Illustrator/Photoshop. [suffix] is
+  /// 'front-back' | 'front' | 'back'.
+  Future<void> _downloadEditable(String suffix) async {
+    setState(() => _isSaving = true);
+    String? html;
+    try {
+      html = await NidEditableHtml.build(
+        _cardInfo,
+        front: suffix != 'back',
+        back: suffix != 'front',
+      );
+    } catch (e) {
+      debugPrint('Editable HTML build error: $e');
+    }
+    if (!mounted) return;
+    setState(() => _isSaving = false);
+    if (html == null) {
+      _exportFailed();
+      return;
+    }
+
+    final filename = '${_safeName()}_${suffix}_editable.html';
+    final opened = await NidHtmlPrinter.openForPrint(html, filename);
+    if (!mounted) return;
+    if (opened) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Opened in your browser — in the print dialog choose '
+            '"Save as PDF", then open that PDF in Illustrator.'),
+        duration: Duration(seconds: 6),
+      ));
+    } else {
+      // Mobile / open failed: save the .html so the user opens it in a browser.
+      await _deliverFile(Uint8List.fromList(utf8.encode(html)), filename);
+    }
   }
 
   /// Builds a PDF with each PNG in [pageImages] centered on its own A4 page.

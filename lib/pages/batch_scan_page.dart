@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:ui' as ui;
 import 'package:archive/archive.dart';
 import 'package:flutter/foundation.dart';
@@ -11,6 +12,8 @@ import '../models/card_info.dart';
 import '../models/nid_input_pair.dart';
 import '../services/file_export.dart';
 import '../services/gemini_nid_service.dart';
+import '../services/nid_editable_html.dart';
+import '../services/nid_html_printer.dart';
 import '../services/nid_pdf_builder.dart';
 import '../services/web_image_paste.dart';
 import '../theme/app_theme.dart';
@@ -588,6 +591,10 @@ class _BatchScanPageState extends State<BatchScanPage> {
                     () => _downloadItemPdf(item, _Side.front)),
                 _downloadTile(Icons.picture_as_pdf_outlined, 'Back side only',
                     () => _downloadItemPdf(item, _Side.back)),
+                const Divider(color: AppTheme.borderCol),
+                _sheetSectionLabel('EDITABLE · BANGLA AS TEXT'),
+                _downloadTile(Icons.public, 'Open in browser → Save as PDF',
+                    () => _downloadItemEditable(item, _Side.both)),
                 const SizedBox(height: 8),
               ],
             ),
@@ -666,6 +673,35 @@ class _BatchScanPageState extends State<BatchScanPage> {
       return;
     }
     await _deliver(pdfBytes, '${item.safeBaseName}_${side.suffix}.pdf');
+  }
+
+  /// Exports the NID as HTML (Bangla = real Unicode text) and opens it in the
+  /// browser to "Save as PDF" — that PDF has editable Bangla in Illustrator.
+  Future<void> _downloadItemEditable(BatchItem item, _Side side) async {
+    String? html;
+    try {
+      html = await NidEditableHtml.build(
+        item.info,
+        front: side != _Side.back,
+        back: side != _Side.front,
+      );
+    } catch (e) {
+      debugPrint('Editable HTML build error: $e');
+    }
+    if (!mounted) return;
+    if (html == null) {
+      _toast('Could not build the editable card.');
+      return;
+    }
+
+    final filename = '${item.safeBaseName}_${side.suffix}_editable.html';
+    final opened = await NidHtmlPrinter.openForPrint(html, filename);
+    if (!mounted) return;
+    if (opened) {
+      _toast('Opened in your browser — choose "Save as PDF" in the print dialog.');
+    } else {
+      await _deliver(Uint8List.fromList(utf8.encode(html)), filename);
+    }
   }
 
   Future<void> _deliver(Uint8List bytes, String filename) async {
