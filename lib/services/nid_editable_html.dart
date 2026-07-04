@@ -132,8 +132,8 @@ class NidEditableHtml {
         <img class="seal" src="$seal" />
         <div class="head-center">
           <div class="bn" style="font-size:${_fs(12)}px;font-weight:600">গণপ্রজাতন্ত্রী বাংলাদেশ সরকার</div>
-          <div class="en" style="font-size:${_fs(7)}px;font-weight:600;color:$_green">Government of the People's Republic of Bangladesh</div>
-          <div class="nidline">
+          <div class="en" style="font-size:${_fs(7)}px;font-weight:600;color:$_green;margin-top:3px">Government of the People's Republic of Bangladesh</div>
+          <div class="nidline" style="margin-top:2px">
             <span class="en" style="font-size:${_fs(7)}px;font-weight:bold;color:$_red">National ID Card</span>
             <span class="bn" style="font-size:${_fs(8)}px;font-weight:bold;color:#1a1a1a"> / জাতীয় পরিচয় পত্র</span>
           </div>
@@ -222,7 +222,7 @@ class NidEditableHtml {
   .card { width: ${_cardW.toStringAsFixed(0)}px; height: ${_cardH.toStringAsFixed(2)}px;
     transform: scale(${_mmScale.toStringAsFixed(5)}); transform-origin: top left;
     position: relative; background: #fff; color: #000; }
-  .watermark { position: absolute; left: 50%; top: 85px; width: 125px; height: 125px;
+  .watermark { position: absolute; left: 50%; top: 58px; width: 125px; height: 125px;
     object-fit: contain; opacity: .3; transform: translateX(-50%); }
   .pad { position: relative; display: flex; flex-direction: column; height: 100%; }
   .header { display: flex; align-items: center; padding: 8px 14px 2px 10px; }
@@ -232,9 +232,10 @@ class NidEditableHtml {
   .hr { border-top: 1px solid #1a1a1a; margin: 3px 0; }
   .hr.thick { border-top-width: 1.2px; margin: 2px 0; }
   .hr.thin { border-top-width: 1px; margin: 3px 0; }
-  .body { flex: 1; display: flex; align-items: flex-start; padding: 0 14px 10px; }
+  .body { flex: 1; display: flex; align-items: stretch; padding: 2px 14px 12px; }
   .left { display: flex; flex-direction: column; align-items: center; }
-  .right { flex: 1; margin-left: 10px; }
+  .right { flex: 1; margin-left: 10px; display: flex; flex-direction: column;
+    justify-content: space-between; padding: 2px 0 4px; }
   .row { display: flex; align-items: baseline; padding: 1px 0; }
   .lbl { width: 42px; color: #1a1a1a; font-weight: 600; }
   .lbl.bn { font-size: ${_fs(9)}px; } .lbl.en { font-size: ${_fs(8.5)}px; }
