@@ -12,7 +12,9 @@ Future<bool> openForPrint(String html, String filename) async {
     await file.writeAsString(html);
 
     if (Platform.isMacOS) {
-      await Process.run('open', [file.path]);
+      // Prefer Chrome — it reliably embeds the web font when you "Save as PDF".
+      final r = await Process.run('open', ['-a', 'Google Chrome', file.path]);
+      if (r.exitCode != 0) await Process.run('open', [file.path]);
       return true;
     } else if (Platform.isWindows) {
       await Process.run('cmd', ['/c', 'start', '', file.path]);

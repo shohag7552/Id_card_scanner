@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:barcode_widget/barcode_widget.dart';
-import 'package:google_fonts/google_fonts.dart';
 import '../models/card_info.dart';
 
 enum CardTemplateType {
@@ -832,12 +831,10 @@ class CardTemplateWidget extends StatelessWidget {
   }
 
   // 5. Bangladesh National ID Card Template (Horizontal: 350 x 215)
-  // Fonts: English text → Arial; Bangla text → Noto Serif Bengali, fetched at
-  // runtime via google_fonts and preloaded in main() so the off-screen NID→PNG
-  // capture renders it correctly. ('Arial' resolves on web/desktop.)
+  // Fonts: English text → Arial; Bangla text → Nikosh (the official BD NID
+  // Unicode Bangla font), bundled in assets/fonts and registered in pubspec.
   static const String _enFont = 'Arial';
-  static final String _bnFont =
-      GoogleFonts.notoSerifBengali().fontFamily ?? 'serif';
+  static const String _bnFont = 'Nikosh';
 
   // Colours from the real card.
   static const Color _nidGreen = Color(0xFF1E7D32);
