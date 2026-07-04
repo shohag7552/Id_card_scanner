@@ -24,9 +24,19 @@ class NidEditableHtml {
   static double get _mmScale =>
       CardTemplateWidget.nidCardWidthMm / (_cardW / 96 * 25.4); // ≈0.9244
 
-  /// Full HTML document. [front]/[back] choose which sides to include.
+  /// Full HTML document for a single NID. [front]/[back] choose the sides.
   static Future<String> build(
     CardInfo info, {
+    bool front = true,
+    bool back = true,
+  }) =>
+      buildAll([info], front: front, back: back);
+
+  /// Builds ONE HTML document containing every card in [infos] (front+back pages
+  /// each), so a single browser "Save as PDF" yields one multi-page editable
+  /// PDF of the whole batch. Fonts and fixed assets are embedded just once.
+  static Future<String> buildAll(
+    List<CardInfo> infos, {
     bool front = true,
     bool back = true,
   }) async {
@@ -34,12 +44,14 @@ class NidEditableHtml {
     final sapla = await _assetUri('assets/images/sapla_logo.png');
     final authSig = await _assetUri('assets/images/authority_signature.png');
     final nikosh = await _fontUri('assets/fonts/Nikosh.ttf');
-    final avatar = _bytesUri(info.avatarBytes);
-    final signature = _bytesUri(info.signatureBytes);
 
     final cards = <String>[];
-    if (front) cards.add(_front(info, seal, sapla, avatar, signature));
-    if (back) cards.add(_back(info, authSig));
+    for (final info in infos) {
+      final avatar = _bytesUri(info.avatarBytes);
+      final signature = _bytesUri(info.signatureBytes);
+      if (front) cards.add(_front(info, seal, sapla, avatar, signature));
+      if (back) cards.add(_back(info, authSig));
+    }
     return _doc(cards, nikosh);
   }
 
@@ -160,7 +172,7 @@ class NidEditableHtml {
     return '''
   <div class="card">
     <div class="pad">
-      <div class="prop bn" style="font-size:${_fs(6.5)}px;line-height:1.3">এই কার্ডটি গণপ্রজাতন্ত্রী বাংলাদেশ সরকারের সম্পত্তি। কার্ডটি ব্যবহারকারী ব্যতীত অন্য কোথাও পাওয়া গেলে নিকটস্থ পোস্ট অফিসে জমা দেবার জন্য অনুরোধ করা হলো।</div>
+      <div class="prop bn" style="font-size:${_fs(8)}px;line-height:1.3">এই কার্ডটি গণপ্রজাতন্ত্রী বাংলাদেশ সরকারের সম্পত্তি। কার্ডটি ব্যবহারকারী ব্যতীত অন্য কোথাও পাওয়া গেলে নিকটস্থ পোস্ট অফিসে জমা দেবার জন্য অনুরোধ করা হলো।</div>
       <div class="hr thick"></div>
       <div class="addr">
         <span class="bn" style="font-size:${_fs(8)}px">ঠিকানা:&nbsp;</span>

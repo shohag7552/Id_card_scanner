@@ -508,6 +508,39 @@ class _BatchScanPageState extends State<BatchScanPage> {
   // Delivery
   // ---------------------------------------------------------------------------
 
+  /// Builds ONE editable HTML of every finished card and opens it in the browser
+  /// so a single "Save as PDF" yields one multi-page editable-Bangla PDF of the
+  /// whole batch. Falls back to saving the .html when no browser can be opened.
+  Future<void> _downloadAllEditable() async {
+    final ready =
+        _items.where((i) => i.status == BatchStatus.done).toList();
+    if (ready.isEmpty) {
+      _toast('No finished cards to export yet.');
+      return;
+    }
+    String? html;
+    try {
+      html = await NidEditableHtml.buildAll(ready.map((i) => i.info).toList());
+    } catch (e) {
+      debugPrint('Batch editable HTML error: $e');
+    }
+    if (!mounted) return;
+    if (html == null) {
+      _toast('Could not build the editable export.');
+      return;
+    }
+
+    final filename = 'nid_batch_${ready.length}_editable.html';
+    final opened = await NidHtmlPrinter.openForPrint(html, filename);
+    if (!mounted) return;
+    if (opened) {
+      _toast('Opened ${ready.length} cards in your browser — choose "Save as '
+          'PDF" for one editable PDF of all.');
+    } else {
+      await _deliver(Uint8List.fromList(utf8.encode(html)), filename);
+    }
+  }
+
   Future<void> _downloadZip() async {
     final ready = _items
         .where((i) => i.status == BatchStatus.done && i.combinedPng != null)
@@ -1542,9 +1575,9 @@ class _BatchScanPageState extends State<BatchScanPage> {
             borderRadius: BorderRadius.circular(12),
           ),
           child: ElevatedButton.icon(
-            onPressed: readyCount > 0 ? () => _downloadZip() : null,
-            icon: const Icon(Icons.download, size: 18),
-            label: Text('DOWNLOAD ZIP ($readyCount CARD${readyCount == 1 ? '' : 'S'})'),
+            onPressed: readyCount > 0 ? () => _downloadAllEditable() : null,
+            icon: const Icon(Icons.picture_as_pdf, size: 18),
+            label: Text('DOWNLOAD ALL · EDITABLE PDF ($readyCount CARD${readyCount == 1 ? '' : 'S'})'),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.transparent,
               shadowColor: Colors.transparent,
@@ -1553,6 +1586,19 @@ class _BatchScanPageState extends State<BatchScanPage> {
             ),
           ),
         ),
+        if (readyCount > 0) ...[
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            onPressed: () => _downloadZip(),
+            icon: const Icon(Icons.folder_zip, size: 18),
+            label: Text('PNG ZIP ($readyCount CARD${readyCount == 1 ? '' : 'S'})'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppTheme.secondary,
+              side: const BorderSide(color: AppTheme.borderCol),
+              padding: const EdgeInsets.symmetric(vertical: 14),
+            ),
+          ),
+        ],
         if (failedCount > 0) ...[
           const SizedBox(height: 10),
           OutlinedButton.icon(
