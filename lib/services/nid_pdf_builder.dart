@@ -167,7 +167,7 @@ class NidPdfBuilder {
     final lblFather = await _bn('পিতা:', fontSize: 9, weight: ui.FontWeight.w500);
     final lblMother = await _bn('মাতা:', fontSize: 9, weight: ui.FontWeight.w500);
     final valName = await _bn(nameVal,
-        fontSize: 11, weight: ui.FontWeight.w900, color: 0xFF111827, maxWidth: 200);
+        fontSize: 11, weight: ui.FontWeight.bold, color: 0xFF111827, maxWidth: 200);
     final valFather = await _bn(fatherVal,
         fontSize: 9.5, weight: ui.FontWeight.w500, color: 0xFF111827, maxWidth: 200);
     final valMother = await _bn(motherVal,
@@ -285,7 +285,7 @@ class NidPdfBuilder {
                         pw.Text('ID NO: ', style: _enStyle(8)),
                         pw.Text(
                           info.idNumber.isNotEmpty ? info.idNumber : '',
-                          style: _enStyle(9.5, color: red, bold: false),
+                          style: _enStyle(10, color: red, bold: true),
                         ),
                       ]),
                     ],
@@ -339,11 +339,11 @@ class NidPdfBuilder {
     );
     final addr = await _bn('ঠিকানা: $addrVal',
         fontSize: 7.5, weight: ui.FontWeight.bold, maxWidth: 322);
-    final bloodBn = await _bn('রক্তের গ্রুপ', fontSize: 8, weight: ui.FontWeight.bold);
+    final bloodBn = await _bn('রক্তের গ্রুপ', fontSize: 6, weight: ui.FontWeight.bold);
     final birth = await _bn('জন্মস্থান: $birthVal',
-        fontSize: 8, weight: ui.FontWeight.bold, maxWidth: 130);
+        fontSize: 6, weight: ui.FontWeight.bold, maxWidth: 130);
     final mudron = await _bn('মুদ্রণ: ০১',
-        fontSize: 7.5, weight: ui.FontWeight.bold, color: 0xFFFFFFFF, bgColor: 0xFF000000);
+        fontSize: 6, weight: ui.FontWeight.bold, color: 0xFFFFFFFF, bgColor: 0xFF000000);
     final sigCap = await _bn('প্রদানকারী কর্তৃপক্ষের স্বাক্ষর',
         fontSize: 8, weight: ui.FontWeight.bold);
     final issue = await _bn('প্রদানের তারিখ: $issueVal',
@@ -389,9 +389,9 @@ class NidPdfBuilder {
             crossAxisAlignment: pw.CrossAxisAlignment.center,
             children: [
               _bnImage(bloodBn),
-              pw.Text('/Blood Group: ', style: _enStyle(8, bold: false)),
+              pw.Text('/Blood Group: ', style: _enStyle(6, bold: false)),
               pw.Text(info.bloodGroup.isNotEmpty ? info.bloodGroup : '',
-                  style: _enStyle(9, color: red, bold: false)),
+                  style: _enStyle(8, color: red, bold: false)),
               pw.SizedBox(width: 16),
               _bnImage(birth),
               pw.Spacer(),
@@ -401,7 +401,7 @@ class NidPdfBuilder {
         ),
         pw.SizedBox(height: 4),
         pw.Container(height: 1, color: PdfColors.black),
-        pw.SizedBox(height: 2),
+        pw.SizedBox(height: 4),
         pw.Padding(
           padding: const pw.EdgeInsets.fromLTRB(14, 0, 18, 0),
           child: pw.Row(
@@ -413,17 +413,17 @@ class NidPdfBuilder {
             ],
           ),
         ),
-        pw.SizedBox(height: 6),
+        pw.SizedBox(height: 2),
         pw.Padding(
           padding: const pw.EdgeInsets.fromLTRB(14, 0, 14, 12),
           child: pw.BarcodeWidget(
             // ~322×30 ≈ 10.7:1; build wide so it fills (see card widget note).
-            barcode: pw.Barcode.pdf417(preferredRatio: 12),
+            barcode: pw.Barcode.pdf417(preferredRatio: 9),
             data: barcodeData,
             drawText: false,
             color: PdfColors.black,
             width: 322,
-            height: 30,
+            height: 42,
           ),
         ),
       ],

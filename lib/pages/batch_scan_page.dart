@@ -541,43 +541,111 @@ class _BatchScanPageState extends State<BatchScanPage> {
     }
   }
 
-  Future<void> _downloadZip() async {
-    final ready = _items
-        .where((i) => i.status == BatchStatus.done && i.combinedPng != null)
-        .toList();
-    if (ready.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No finished cards to download yet.')),
-        );
-      }
+  /// 1-based, collision-safe base filename for [item]'s [side].
+  String _batchBaseName(BatchItem item, _Side side) =>
+      '${(item.index + 1).toString().padLeft(2, '0')}_${item.safeBaseName}_${side.suffix}';
+
+  /// Zips one PNG per finished card for the chosen [side] and downloads it.
+  Future<void> _downloadAllPngZip(_Side side) async {
+    final ready = _items.where((i) => i.status == BatchStatus.done).toList();
+    final archive = Archive();
+    var added = 0;
+    for (final item in ready) {
+      final bytes = _pngForSide(item, side);
+      if (bytes == null) continue;
+      archive.add(ArchiveFile.bytes('${_batchBaseName(item, side)}.png', bytes));
+      added++;
+    }
+    if (added == 0) {
+      _toast('No finished cards to download yet.');
       return;
     }
+    final zipBytes = ZipEncoder().encodeBytes(archive);
+    await _deliver(zipBytes, 'nid_batch_${added}_${side.suffix}_png.zip');
+  }
 
-    final archive = Archive();
-    for (final item in ready) {
-      // One combined PNG per NID (front + back in a single image). Prefixed with
-      // the 1-based index so two same-named people never collide.
-      final base = '${(item.index + 1).toString().padLeft(2, '0')}_${item.safeBaseName}';
-      archive.add(ArchiveFile.bytes('$base.png', item.combinedPng!));
+  /// Builds a native (bangla_pdf) PDF per finished card for the chosen [side]
+  /// and zips them together.
+  Future<void> _downloadAllPdfZip(_Side side) async {
+    final ready = _items.where((i) => i.status == BatchStatus.done).toList();
+    if (ready.isEmpty) {
+      _toast('No finished cards to download yet.');
+      return;
     }
+    _toast('Preparing ${ready.length} PDF${ready.length == 1 ? '' : 's'}…');
+    final archive = Archive();
+    var added = 0;
+    for (final item in ready) {
+      try {
+        final pdf = await NidPdfBuilder.build(
+          item.info,
+          front: side != _Side.back,
+          back: side != _Side.front,
+        );
+        archive.add(ArchiveFile.bytes('${_batchBaseName(item, side)}.pdf', pdf));
+        added++;
+      } catch (e) {
+        debugPrint('Batch PDF build error (${item.safeBaseName}): $e');
+      }
+    }
+    if (added == 0) {
+      _toast('Could not build any PDFs.');
+      return;
+    }
+    final zipBytes = ZipEncoder().encodeBytes(archive);
+    await _deliver(zipBytes, 'nid_batch_${added}_${side.suffix}_pdf.zip');
+  }
 
-    final Uint8List zipBytes = ZipEncoder().encodeBytes(archive);
-    final filename = 'nid_batch_${ready.length}_cards.zip';
-    final SaveResult result = await FileExport.saveToDownloads(zipBytes, filename);
-    if (!mounted) return;
-
-    final where = result.isWeb
-        ? 'downloaded by your browser'
-        : (result.ok ? 'saved to your Downloads folder' : 'ready to share');
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: AppTheme.secondary,
-        content: Text(
-          '$filename (${ready.length} cards) $where.',
-          style: const TextStyle(color: Colors.black),
-        ),
-      ),
+  /// "Download all": pick a format/side and every finished card is exported in
+  /// that format (PNG/PDF as a ZIP, or all cards as one editable-Bangla PDF).
+  void _showDownloadAllSheet() {
+    final count = _items.where((i) => i.status == BatchStatus.done).length;
+    showAdaptiveSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        return SafeArea(
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  title: Text(
+                    'Download all $count card${count == 1 ? '' : 's'}',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, color: Colors.white, fontSize: 16),
+                  ),
+                  subtitle: const Text(
+                    'Choose a format — every finished card is exported',
+                    style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                  ),
+                ),
+                const Divider(color: AppTheme.borderCol),
+                _sheetSectionLabel('PNG IMAGE (ZIP)'),
+                _downloadTile(Icons.view_stream, 'Both sides (combined)',
+                    () => _downloadAllPngZip(_Side.both)),
+                _downloadTile(Icons.credit_card, 'Front side only',
+                    () => _downloadAllPngZip(_Side.front)),
+                _downloadTile(Icons.flip, 'Back side only',
+                    () => _downloadAllPngZip(_Side.back)),
+                const Divider(color: AppTheme.borderCol),
+                _sheetSectionLabel('PDF DOCUMENT (ZIP)'),
+                _downloadTile(Icons.picture_as_pdf, 'Both sides (2 pages each)',
+                    () => _downloadAllPdfZip(_Side.both)),
+                _downloadTile(Icons.picture_as_pdf_outlined, 'Front side only',
+                    () => _downloadAllPdfZip(_Side.front)),
+                _downloadTile(Icons.picture_as_pdf_outlined, 'Back side only',
+                    () => _downloadAllPdfZip(_Side.back)),
+                const Divider(color: AppTheme.borderCol),
+                _sheetSectionLabel('EDITABLE · BANGLA AS TEXT'),
+                _downloadTile(Icons.public, 'All cards → one PDF (open in browser)',
+                    () => _downloadAllEditable()),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -1575,9 +1643,9 @@ class _BatchScanPageState extends State<BatchScanPage> {
             borderRadius: BorderRadius.circular(12),
           ),
           child: ElevatedButton.icon(
-            onPressed: readyCount > 0 ? () => _downloadAllEditable() : null,
-            icon: const Icon(Icons.picture_as_pdf, size: 18),
-            label: Text('DOWNLOAD ALL · EDITABLE PDF ($readyCount CARD${readyCount == 1 ? '' : 'S'})'),
+            onPressed: readyCount > 0 ? () => _showDownloadAllSheet() : null,
+            icon: const Icon(Icons.download, size: 18),
+            label: Text('DOWNLOAD ALL ($readyCount CARD${readyCount == 1 ? '' : 'S'})'),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.transparent,
               shadowColor: Colors.transparent,
@@ -1586,19 +1654,6 @@ class _BatchScanPageState extends State<BatchScanPage> {
             ),
           ),
         ),
-        if (readyCount > 0) ...[
-          const SizedBox(height: 10),
-          OutlinedButton.icon(
-            onPressed: () => _downloadZip(),
-            icon: const Icon(Icons.folder_zip, size: 18),
-            label: Text('PNG ZIP ($readyCount CARD${readyCount == 1 ? '' : 'S'})'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppTheme.secondary,
-              side: const BorderSide(color: AppTheme.borderCol),
-              padding: const EdgeInsets.symmetric(vertical: 14),
-            ),
-          ),
-        ],
         if (failedCount > 0) ...[
           const SizedBox(height: 10),
           OutlinedButton.icon(
