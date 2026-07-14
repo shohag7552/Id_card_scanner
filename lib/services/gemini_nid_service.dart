@@ -102,7 +102,11 @@ class GeminiNidService {
     'properties': {
       'banglaName': {
         'type': 'STRING',
-        'description': 'Full name in Bangla script (নাম), exactly as printed.',
+        'description': 'Full name in Bangla script (নাম), exactly as printed. '
+            'Reproduce every conjunct consonant (যুক্তাক্ষর) and vowel sign '
+            'precisely — e.g. ক্ত, স্ত, ন্দ, ন্ধ, ন্ত, ঙ্গ, ক্ষ, জ্ঞ, ষ্ণ, '
+            'ত্ত, দ্ধ, ম্ব — never split them into separate letters or drop the '
+            'hasant (্).',
       },
       'englishName': {
         'type': 'STRING',
@@ -110,11 +114,13 @@ class GeminiNidService {
       },
       'banglaFatherName': {
         'type': 'STRING',
-        'description': "Father's name in Bangla script (পিতা).",
+        'description': "Father's name in Bangla script (পিতা). Keep every "
+            'conjunct consonant (যুক্তাক্ষর) and vowel sign exactly as printed.',
       },
       'banglaMotherName': {
         'type': 'STRING',
-        'description': "Mother's name in Bangla script (মাতা).",
+        'description': "Mother's name in Bangla script (মাতা). Keep every "
+            'conjunct consonant (যুক্তাক্ষর) and vowel sign exactly as printed.',
       },
       'dateOfBirth': {
         'type': 'STRING',
@@ -126,7 +132,10 @@ class GeminiNidService {
       },
       'address': {
         'type': 'STRING',
-        'description': 'Full address in Bangla from the back side (ঠিকানা).',
+        'description': 'Full address in Bangla from the back side (ঠিকানা). '
+            'Preserve every conjunct consonant (যুক্তাক্ষর), vowel sign and '
+            'hasant (্) exactly as printed — place names often contain '
+            'conjuncts (e.g. ধানমন্ডি, চট্টগ্রাম, ময়মনসিংহ, রংপুর).',
       },
       'bloodGroup': {
         'type': 'STRING',
@@ -204,6 +213,23 @@ Extract these fields and return them as JSON matching the provided schema:
 - The ID number must be digits only.
 - The front side usually holds: name (Bangla + English), father, mother, date of birth, ID number.
 - The back side usually holds: address, blood group, birth place, date of issue.
+
+Bangla script accuracy — this is CRITICAL, read very carefully:
+- Bangla text on these cards is full of conjunct consonants (যুক্তাক্ষর / যুক্তব্যঞ্জন): two or
+  more consonants joined by a hasant/virama (্) into a single ligature. Reproduce each one
+  EXACTLY — do NOT split it into separate letters, do NOT drop the hasant, and do NOT
+  substitute a similar-looking simple letter.
+- Read every Bangla word grapheme by grapheme (letter cluster by letter cluster). For each
+  cluster, decide the base consonant(s), any conjunct joins, and every vowel sign (কার/মাত্রা)
+  and diacritic before moving on.
+- Common conjuncts you MUST get right when present: ক্ত ক্ষ ক্র ক্ল ক্স, গ্ধ গ্ন গ্ম, ঙ্গ ঙ্ক,
+  চ্চ চ্ছ, জ্ঞ জ্জ, ঞ্চ ঞ্জ, ট্ট, ণ্ড ণ্ঠ, ত্ত ত্র ত্ম, দ্দ দ্ধ দ্ব দ্র, ন্দ ন্ধ ন্ত ন্ন ন্ট ন্ড,
+  প্ত প্প প্র প্ল, ব্দ ব্ধ ব্ব, ম্ব ম্ম ম্প, ল্ল ল্প, শ্চ শ্ব শ্র, ষ্ট ষ্ঠ ষ্ণ, স্ত স্থ স্প স্ক স্ট স্র,
+  হ্ম হ্ন, র্ (রেফ, e.g. র্ম র্ধ র্ণ) and ব-ফলা / য-ফলা / র-ফলা (্ব ্য ্র).
+- Also preserve every vowel sign exactly: া ি ী ু ূ ৃ ে ৈ ো ৌ, chandrabindu (ঁ), anusvara (ং),
+  visarga (ঃ) and the standalone hasant. A missing or wrong কার changes the name.
+- Zoom in mentally on each name and place; NID fonts are small and conjuncts are dense.
+  Prefer faithful reproduction of the printed ligature over a "cleaner" guess.
 
 Dates — read very carefully and do NOT mix them up:
 - dateOfBirth is on the FRONT, labelled "Date of Birth" (in English digits, e.g. "20 Dec 2006").
