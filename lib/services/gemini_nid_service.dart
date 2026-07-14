@@ -41,8 +41,13 @@ class GeminiModelOption {
 class GeminiNidService {
   /// Curated, user-selectable models for NID scanning. Kept short and labelled
   /// on purpose — exposing every raw model id would confuse end users and
-  /// includes models that can't do this vision task. All three are stable
-  /// (no `-preview`), so Google won't retire them out from under the app.
+  /// includes models that can't do this vision task.
+  ///
+  /// The first three (Gemini 2.5) are stable (no `-preview`), so Google won't
+  /// retire them out from under the app — [defaultModelId] stays on one of them.
+  /// The Gemini 3.x / 3.5 entries below are newer and read dense Bangla
+  /// conjunct consonants noticeably better, but several are still `-preview`
+  /// and could be retired or changed by Google without notice.
   static const List<GeminiModelOption> availableModels = [
     GeminiModelOption(
       id: 'gemini-2.5-flash',
@@ -58,6 +63,22 @@ class GeminiNidService {
       id: 'gemini-2.5-flash-lite',
       label: 'Fast & cheap',
       description: 'Quickest and cheapest. Best for clear, well-lit cards.',
+    ),
+    GeminiModelOption(
+      id: 'gemini-3.1-pro-preview',
+      label: 'Gemini 3.1 Pro (Preview)',
+      description: 'Newest, most accurate — best for dense Bangla conjunct '
+          'consonants and hard-to-read cards. Preview model, slower and costlier.',
+    ),
+    GeminiModelOption(
+      id: 'gemini-3.5-flash',
+      label: 'Gemini 3.5 Flash',
+      description: 'Newer fast model — better Bangla accuracy than 2.5 Flash.',
+    ),
+    GeminiModelOption(
+      id: 'gemini-3-flash-preview',
+      label: 'Gemini 3 Flash (Preview)',
+      description: 'Fast Gemini 3 preview. Good balance of speed and accuracy.',
     ),
   ];
 

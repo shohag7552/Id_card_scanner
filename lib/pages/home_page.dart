@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import '../models/card_info.dart';
+import '../services/gemini_nid_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/card_template_widgets.dart';
+import '../widgets/model_selector.dart';
 import '../widgets/responsive_center.dart';
 import 'scan_page.dart';
 import 'card_editor_page.dart';
@@ -88,6 +90,8 @@ class HomePage extends StatelessWidget {
                 _buildHeroScannerCard(context),
                 const SizedBox(height: 14),
                 _buildBatchScanButton(context),
+                const SizedBox(height: 14),
+                const _HomeModelSelector(),
                 const SizedBox(height: 36),
 
                 // Template Gallery Section
@@ -441,6 +445,31 @@ class HomePage extends StatelessWidget {
           )
         ],
       ),
+    );
+  }
+}
+
+/// Home-screen wrapper around [ModelSelector]. Holds the current selection in
+/// local state and mirrors it into [GeminiNidService.selectedModelId] so the
+/// choice is applied to every subsequent scan (single + batch) this session.
+class _HomeModelSelector extends StatefulWidget {
+  const _HomeModelSelector();
+
+  @override
+  State<_HomeModelSelector> createState() => _HomeModelSelectorState();
+}
+
+class _HomeModelSelectorState extends State<_HomeModelSelector> {
+  String _selectedModelId = GeminiNidService.selectedModelId;
+
+  @override
+  Widget build(BuildContext context) {
+    return ModelSelector(
+      selectedId: _selectedModelId,
+      onChanged: (id) {
+        setState(() => _selectedModelId = id);
+        GeminiNidService.selectedModelId = id;
+      },
     );
   }
 }
