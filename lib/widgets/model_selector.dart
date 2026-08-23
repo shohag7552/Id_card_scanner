@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../constants/app_constants.dart';
 import '../services/gemini_nid_service.dart';
 import '../theme/app_theme.dart';
 
@@ -14,6 +15,67 @@ class ModelSelector extends StatelessWidget {
     required this.selectedId,
     required this.onChanged,
   });
+
+  /// One dropdown entry. Paid (Pro-tier) models are disabled and visibly marked
+  /// "Release only" while the app runs in developer mode.
+  DropdownMenuItem<String> _menuItem(GeminiModelOption m) {
+    final blocked = AppConstants.isDevMode && m.isPaid;
+    return DropdownMenuItem<String>(
+      value: m.id,
+      enabled: !blocked,
+      child: Opacity(
+        opacity: blocked ? 0.45 : 1.0,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Flexible(
+                  child: Text(
+                    m.label,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                if (blocked) ...[
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: AppTheme.accentGold.withAlpha(38),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const Text(
+                      'Release only',
+                      style: TextStyle(
+                        color: AppTheme.accentGold,
+                        fontSize: 8,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            Text(
+              m.description,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: AppTheme.textSecondary,
+                fontSize: 10,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -73,35 +135,11 @@ class ModelSelector extends StatelessWidget {
                       ),
                     ),
                 ],
-                // Open-menu state: label + wrapped description.
+                // Open-menu state: label + wrapped description. Paid (Pro-tier)
+                // models are disabled in developer mode so they can't be picked.
                 items: [
                   for (final m in GeminiNidService.availableModels)
-                    DropdownMenuItem<String>(
-                      value: m.id,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            m.label,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          Text(
-                            m.description,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: AppTheme.textSecondary,
-                              fontSize: 10,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                    _menuItem(m),
                 ],
               ),
             ),

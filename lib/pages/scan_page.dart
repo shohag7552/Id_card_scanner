@@ -13,6 +13,7 @@ import '../widgets/card_template_widgets.dart';
 import '../widgets/responsive_center.dart';
 import '../widgets/adaptive_sheet.dart';
 import '../widgets/model_selector.dart';
+import '../widgets/dev_mode_dialog.dart';
 
 class ScanPage extends StatefulWidget {
   const ScanPage({super.key});
@@ -190,6 +191,11 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
   /// crops the avatar / signatures on-device with ML Kit face detection.
   Future<void> _scanNow() async {
     if (_frontBytes == null) return;
+
+    // Developer build: show the dev-mode notice first; abort if the user
+    // cancels. In release mode this returns true immediately (no dialog).
+    final proceed = await DevModeDialog.confirmScan(context);
+    if (!proceed || !mounted) return;
 
     setState(() => _isScanning = true);
     _laserController.repeat(reverse: true);

@@ -31,10 +31,16 @@ class GeminiModelOption {
   final String label;
   final String description;
 
+  /// True for premium (Pro-tier) models that incur higher billing. These are
+  /// DISABLED in developer mode ([AppConstants.isDevMode]) so testing never
+  /// triggers costly calls.
+  final bool isPaid;
+
   const GeminiModelOption({
     required this.id,
     required this.label,
     required this.description,
+    this.isPaid = false,
   });
 }
 
@@ -58,6 +64,7 @@ class GeminiNidService {
       id: 'gemini-2.5-pro',
       label: 'High accuracy',
       description: 'Best for blurry or hard-to-read cards. Slower and costlier.',
+      isPaid: true,
     ),
     GeminiModelOption(
       id: 'gemini-2.5-flash-lite',
@@ -69,6 +76,7 @@ class GeminiNidService {
       label: 'Gemini 3.1 Pro (Preview)',
       description: 'Newest, most accurate — best for dense Bangla conjunct '
           'consonants and hard-to-read cards. Preview model, slower and costlier.',
+      isPaid: true,
     ),
     GeminiModelOption(
       id: 'gemini-3.5-flash',
@@ -298,6 +306,20 @@ Rules:
   /// True when a Gemini API key has been provided via --dart-define.
   static bool get isAvailable => _apiKey.isNotEmpty;
 
+  /// Looks up a model option by [id], or null if it isn't in [availableModels].
+  static GeminiModelOption? modelById(String id) {
+    for (final m in availableModels) {
+      if (m.id == id) return m;
+    }
+    return null;
+  }
+
+  /// True when [id] is a paid model that must not run in the current mode.
+  /// Paid models are blocked only in developer mode ([AppConstants.isDevMode]);
+  /// in release mode nothing is blocked.
+  static bool isModelBlocked(String id) =>
+      AppConstants.isDevMode && (modelById(id)?.isPaid ?? false);
+
   /// Returns a simulated result with realistic Bangla sample data. Used for the
   /// on-screen "Test Simulation" buttons and as a fallback when no API key is
   /// configured (e.g. on desktop/web before setup).
@@ -322,6 +344,19 @@ Rules:
         info: _simulatedInfo(false),
         error: 'No Gemini API key configured — showing sample data. '
             'Run with --dart-define=GEMINI_API_KEY=your_key.',
+      );
+    }
+
+    // Developer mode: refuse paid (Pro-tier) models so testing never triggers
+    // billable premium calls. Release mode allows every model.
+    final requestedModel = modelId ?? selectedModelId;
+    if (isModelBlocked(requestedModel)) {
+      return NidScanResult(
+        info: const CardInfo(),
+        error: 'This is a developer build — the paid model '
+            '"${modelById(requestedModel)?.label ?? requestedModel}" is '
+            'disabled. Pick a free model, or set AppConstants.appMode to '
+            'release to enable paid models.',
       );
     }
 

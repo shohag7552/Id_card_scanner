@@ -21,6 +21,7 @@ import '../widgets/adaptive_sheet.dart';
 import '../widgets/card_template_widgets.dart';
 import '../widgets/responsive_center.dart';
 import '../widgets/model_selector.dart';
+import '../widgets/dev_mode_dialog.dart';
 import 'card_editor_page.dart';
 
 /// Which side(s) of a card to export for a single-item download.
@@ -306,6 +307,11 @@ class _BatchScanPageState extends State<BatchScanPage> {
 
   Future<void> _start() async {
     if (_pairs.isEmpty) return;
+
+    // Developer build: show the dev-mode notice once before the batch runs;
+    // abort if the user cancels. In release mode this is a no-op that proceeds.
+    final proceed = await DevModeDialog.confirmScan(context);
+    if (!proceed || !mounted) return;
 
     _items
       ..clear()
