@@ -15,8 +15,8 @@ class AppConstants {
   /// Can also be overridden at build time without editing this file:
   ///   flutter run --dart-define=APP_MODE=release
   /// Anything other than "release" (including unset) is treated as dev.
-  static const AppMode appMode =
-      _appModeEnv == 'release' ? AppMode.release : AppMode.dev;
+  static const AppMode appMode = AppMode.dev;
+      // _appModeEnv == 'release' ? AppMode.release : AppMode.dev;
 
   static const String _appModeEnv =
       String.fromEnvironment('APP_MODE', defaultValue: 'dev');
